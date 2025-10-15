@@ -5,13 +5,14 @@ import os
 from torch import nn, optim
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Iterable
+from typing import Iterable, Dict, Any
+
+from utils.utils import print_stats, save_model
 
 
 
 
-
-class FlowTrainer(ABC):
+class Trainer(ABC):
 
     def __init__(self, model: nn.Module, optimizer: optim.Optimizer, device="cuda"):
         
@@ -23,12 +24,11 @@ class FlowTrainer(ABC):
     def train(self,
               data_loader: Iterable,
               lr_scheduler: optim.lr_scheduler,
-              device: torch.device,
               epochs: int,
               print_stats_interval: int,
               save_interval: int,
               save_dir: str,
-              visualize: bool = True
+              visualize: bool = False
               ):
         
         self.model.train()
@@ -50,40 +50,29 @@ class FlowTrainer(ABC):
 
             # Print statistics about the training
             if epoch % print_stats_interval == 0:
-                self.print_stats()
+                print_stats()
 
             # Save model and get visualizations if u want :)
             if epoch % save_interval == 0:
-                self.save_model()
+                save_model()
 
                 if visualize:
                     self.visualize_training()
 
+    def step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, Any]:
 
-    
-    def print_stats(self, *args):
-        print(
-            f"[Epoch {args.epoch+1:04d}/{args.epochs}] "
-            f"Train Loss: {args.train_loss:.10f} | "
-            f"LR: {args.current_lr:.2e} | "
-            f"Time: {args.elapsed:.2f}s"
-            )
-        
-    def save_model(self, *args):
-        os.makedirs(args.save_dir, exits_ok=True)
-        ckpt_path = os.path.join(args.save_dir, f"model_{args.epoch+1}.pt")
-        torch.save({
-        "model_state": self.model.state_dict(),
-        "optimizer_state": self.optimizer.state_dict(),
-        "scheduler_state": args.lr_scheduler.state_dict(),
-        "train_loss": args.epoch_loss,    
-        }, ckpt_path)
+        self.optimizer.zero_grad()
+        loss = self.compute_loss(batch)
+        loss.backward()
+        self.optimizer.step()
+
+        return {"loss": loss.item()}
 
     def visualize_training(self, *args):
         return NotImplemented
 
     @abstractmethod
-    def compute_loss(self, batch: torch.Tensor):
+    def compute_loss(self, batch: Dict[str, torch.Tensor]):
         return NotImplemented
     
     @abstractmethod
