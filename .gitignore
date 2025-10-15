@@ -1,3 +1,6 @@
-
+# Dataset paths
 /data
 /dataset_generation
+
+
+.DS_Store
