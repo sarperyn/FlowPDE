@@ -1,20 +1,20 @@
 import torch
 import os
+import yaml
+import importlib
 
 
-def save_model(*args):
-        
-        os.makedirs(args.save_dir, exits_ok=True) # Create saving directory if not exists
-        ckpt_path = os.path.join(args.save_dir, f"model_{args.epoch+1}.pt") # Define checkpoint path
+def save_model(**kwargs):
+    os.makedirs(kwargs["save_dir"], exist_ok=True)
 
-        # Save model and its arguments
-        torch.save({ 
-        "model_state": args.model.state_dict(),
-        "optimizer_state": args.optimizer.state_dict(),
-        "scheduler_state": args.lr_scheduler.state_dict(),
-        "train_loss": args.epoch_loss,    
-        }, ckpt_path)
+    ckpt_path = os.path.join(kwargs["save_dir"], f"model_{kwargs['epoch'] + 1}.pt")
 
+    torch.save({
+        "model_state": kwargs["model"].state_dict(),
+        "optimizer_state": kwargs["optimizer"].state_dict(),
+        "scheduler_state": kwargs["scheduler"].state_dict(),
+        "train_loss": kwargs["epoch_loss"],
+    }, ckpt_path)
 
 def print_stats(**kwargs):
     parts = []
@@ -33,3 +33,16 @@ def print_stats(**kwargs):
         parts.append(f"{k}: {v_str}")
 
     print(" | ".join(parts))
+
+
+def load_config(config_path: str) -> dict:
+    # Load YAML config file
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+    return config
+
+def load_class(class_path: str):
+    # Dynamically import class from string path
+    module_name, class_name = class_path.rsplit('.', 1)
+    module = importlib.import_module(module_name)
+    return getattr(module, class_name)
