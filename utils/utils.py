@@ -7,7 +7,7 @@ import importlib
 def save_model(**kwargs):
     os.makedirs(kwargs["save_dir"], exist_ok=True)
 
-    ckpt_path = os.path.join(kwargs["save_dir"], f"model_{kwargs['epoch'] + 1}.pt")
+    ckpt_path = os.path.join(kwargs["save_dir"], f"model_{kwargs['epoch']}.pt")
 
     torch.save({
         "model_state": kwargs["model"].state_dict(),

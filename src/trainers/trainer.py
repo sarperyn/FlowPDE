@@ -43,7 +43,7 @@ class Trainer(ABC):
 
             # Train one epoch and get epoch loss
             epoch_loss = self.train_one_epoch(data_loader = data_loader)
-            epoch_losses.append(epoch_losses)
+            epoch_losses.append(epoch_loss)
             
             
             self.lr_scheduler.step() # Change LR
@@ -60,7 +60,7 @@ class Trainer(ABC):
                 )
 
             # Save model and get visualizations if u want :)
-            if epoch % save_interval == 0:
+            if epoch+1 % save_interval == 0:
                 save_model(save_dir=save_dir, 
                            epoch=epoch, 
                            model=self.model,
