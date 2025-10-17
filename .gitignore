@@ -1,6 +1,9 @@
 # Dataset paths
 /data
 /dataset_generation
+/checkpoints
+/configs
 
 
 .DS_Store
+*.pyc
