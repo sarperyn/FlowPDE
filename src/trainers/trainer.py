@@ -29,8 +29,7 @@ class Trainer(ABC):
               epochs: int,
               print_stats_interval: int,
               save_dir: str,
-              save_interval: int = 1000,
-              visualize: bool = False
+              save_interval: int = 30000,
               ):
         
         self.model.train()
@@ -67,9 +66,6 @@ class Trainer(ABC):
                            optimizer=self.optimizer,
                            scheduler=self.lr_scheduler,
                            epoch_loss=epoch_loss)
-
-                # if visualize:
-                #     visualize_training()
 
         plot_curve(epoch_losses, title="Training loss curve", save_path=os.path.join(save_dir,"training_curve.png"))
         

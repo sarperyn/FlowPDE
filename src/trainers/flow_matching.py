@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
-from src.trainers.trainer import Trainer
 
+from src.trainers.trainer import Trainer
 
 from typing import Iterable, Dict, Any
 

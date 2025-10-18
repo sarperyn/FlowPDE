@@ -74,6 +74,5 @@ if __name__ == "__main__":
         print_stats_interval=config['trainer_config']['print_stats_interval'],
         save_interval=config['trainer_config']['save_interval'],
         save_dir=os.path.join(project_dir, "checkpoints", f"{config['name']}_{config['spatial_dim']}"),
-        visualize=False
     )
 
