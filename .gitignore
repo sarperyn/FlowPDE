@@ -3,6 +3,7 @@
 /dataset_generation
 /checkpoints
 /configs
+/__pycache__
 
 
 .DS_Store
