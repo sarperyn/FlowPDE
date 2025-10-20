@@ -5,6 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from glob import glob
 from utils.utils import load_config, load_class
+from utils.args_utils import get_args, override_config
 
 """
 GENERIC TEST SCRIPT
@@ -17,14 +18,21 @@ if __name__ == "__main__":
     # Project root directory
     project_dir = os.getcwd()
 
+    # Get config
+    args = get_args()
+
     # Upload config file
-    config_path = os.path.join(project_dir, "configs", "poisson.yaml")
+    config_path = os.path.abspath(os.path.join(project_dir, args.config.lstrip("/"))) #both /config/poisson.yaml and config/poisson.yaml work
     assert os.path.exists(config_path), f"Config file not found at {config_path}"
 
     # Parse config and use it to set up everything
     config = load_config(config_path)
-    print(config)
+    #print(config)
     print("Config loaded successfully.")
+
+    # Override config with command line arguments
+    config = override_config(config, args)
+    print("Config overridden with command line arguments.")
 
     # Set random seed for reproducibility
     seed = config.get("seed", 42)
@@ -37,7 +45,7 @@ if __name__ == "__main__":
     # Dataset
     DatasetClass = load_class(config["dataset_config"]["class"])
     dataset = DatasetClass(glob(os.path.join(project_dir, config["data_dir"],f"*{config["spatial_dim"]}*"))[0])
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=config["trainer_config"]["batch_size"], shuffle=True)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=config["training_config"]["batch_size"], shuffle=True)
     print("Dataset loaded.")
 
     # Model
@@ -57,7 +65,7 @@ if __name__ == "__main__":
     print("Scheduler ready.")
 
     # Trainer
-    TrainerClass = load_class(config["trainer_config"]["class"])
+    TrainerClass = load_class(config["training_config"]["class"])
     trainer = TrainerClass(
         model=model,
         optimizer=optimizer,
@@ -70,9 +78,9 @@ if __name__ == "__main__":
     print("Starting training...")
     trainer.train(
         data_loader=dataloader,
-        epochs=config['trainer_config']['epochs'],
-        print_stats_interval=config['trainer_config']['print_stats_interval'],
-        save_interval=config['trainer_config']['save_interval'],
+        epochs=config['training_config']['epoch'],
+        print_stats_interval=config['training_config']['print_stats_interval'],
+        save_interval=config['training_config']['save_interval'],
         save_dir=os.path.join(project_dir, "checkpoints", f"{config['name']}_{config['spatial_dim']}"),
     )
 
