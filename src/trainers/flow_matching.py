@@ -1,9 +1,10 @@
 import torch
 import torch.nn.functional as F
+from torch import nn, Tensor
 
 from src.trainers.trainer import Trainer
 
-from typing import Iterable, Dict, Any
+from typing import Iterable, Dict, Optional, Tuple, Union
 
 class FlowMatchingTrainer(Trainer):
     "Flow matching training for CNFs"
