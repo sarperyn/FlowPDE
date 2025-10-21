@@ -1,0 +1,41 @@
+
+# Experiment Name
+name: "poisson_dirichlet"
+seed: 42
+
+# Data
+data_dir: data/static/poisson
+spatial_dim: 16
+
+# Model 
+model_config:
+  class: src.models.mlp.MLP
+
+# Training
+training_config:
+  class: src.trainers.flow_matching.FlowMatchingTrainer
+  batch_size: 1024
+  epoch: 20000
+  print_stats_interval: 100
+  save_interval: 10000
+
+
+# Dataset 
+dataset_config:
+  class: src.datasets.poisson.PoissonDataset
+
+#Optimizer 
+optimizer_config:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 3.0e-4
+    weight_decay: 0.0
+    eps: 1.0e-8
+    betas: [0.9, 0.999]
+
+#Scheduler
+scheduler_config:
+  class: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
+
+
+
