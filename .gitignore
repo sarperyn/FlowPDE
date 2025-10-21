@@ -2,9 +2,10 @@
 /data
 /dataset_generation
 /checkpoints
-/configs
 /__pycache__
-
+/examples
+/docs
+/results
 
 .DS_Store
 *.pyc
