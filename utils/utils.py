@@ -2,6 +2,7 @@ import torch
 import os
 import yaml
 import importlib
+import glob
 
 
 def save_model(**kwargs):
@@ -46,3 +47,15 @@ def load_class(class_path: str):
     module_name, class_name = class_path.rsplit('.', 1)
     module = importlib.import_module(module_name)
     return getattr(module, class_name)
+
+
+def find_latest_checkpoint(project_dir: str, config: dict, checkpoint_dir: str) -> str:
+    # Try to find latest checkpoint
+    checkpoint_dir = os.path.join(project_dir, "checkpoints", f"{config.get('name','exp')}_{config.get('spatial_dim','')}")
+    if os.path.exists(checkpoint_dir):
+        checkpoints = sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")))
+        if checkpoints:
+            checkpoint_path = checkpoints[-1]
+            return checkpoint_path
+    return None
+
