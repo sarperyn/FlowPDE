@@ -40,8 +40,14 @@ class Trainer(ABC):
             
             start_time = time.time() # Start timer
 
-            # Train one epoch and get epoch loss
-            epoch_loss = self.train_one_epoch(data_loader = data_loader)
+            # Train one epoch and get epoch loss (train_one_epoch may return (loss, metrics))
+            result = self.train_one_epoch(data_loader = data_loader)
+            if isinstance(result, tuple):
+                epoch_loss, epoch_metrics = result
+            else:
+                epoch_loss = result
+                epoch_metrics = {}
+
             epoch_losses.append(epoch_loss)
             
             
@@ -51,15 +57,18 @@ class Trainer(ABC):
 
             # Print statistics about the training
             if epoch % print_stats_interval == 0:
-                print_stats(
-                    Epoch=f"{epoch+1:04d}/{epochs}",
-                    Train_Loss=epoch_loss,
-                    LR=self.optimizer.param_groups[0]['lr'],
-                    Time=elapsed_time
-                )
+                stats = {
+                    "Epoch": f"{epoch+1:04d}/{epochs}",
+                    "Train_Loss": epoch_loss,
+                    "LR": self.optimizer.param_groups[0]['lr'],
+                    "Time": elapsed_time,
+                }
+                # merge optional metrics (e.g., mean_logp, bits_per_dim)
+                stats.update(epoch_metrics)
+                print_stats(**stats)
 
             # Save model and get visualizations if u want :)
-            if epoch+1 % save_interval == 0:
+            if (epoch + 1) % save_interval == 0:
                 save_model(save_dir=save_dir, 
                            epoch=epoch, 
                            model=self.model,
