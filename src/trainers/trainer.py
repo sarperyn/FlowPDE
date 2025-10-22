@@ -38,7 +38,7 @@ class Trainer(ABC):
         for epoch in range(epochs):
 
             
-            start_time = time.time() # Start timer
+            start_time = time.perf_counter() # Start time for epoch
 
             # Train one epoch and get epoch loss (train_one_epoch may return (loss, metrics))
             result = self.train_one_epoch(data_loader = data_loader)
@@ -52,7 +52,7 @@ class Trainer(ABC):
             
             
             self.lr_scheduler.step() # Change LR
-            elapsed_time = time.time() - start_time # Compute elapsed time of one epoch
+            elapsed_time = time.perf_counter() - start_time # Elapsed time for epoch
 
 
             # Print statistics about the training
