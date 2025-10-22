@@ -126,7 +126,7 @@ if __name__ == "__main__":
     
     if data_pattern is None:
         # Use validation data by default
-        data_pattern = os.path.join(project_dir, config.get("data_dir", "data"), f"*{config.get('spatial_dim', '')}*val*")
+        data_pattern = os.path.join(project_dir, config.get("data_dir", "data"), f"*{config.get('spatial_dim', '')}*train*")
     else:
         data_pattern = os.path.join(project_dir, data_pattern)
     
@@ -142,18 +142,10 @@ if __name__ == "__main__":
 
     # Load model
     print("\nLoading model...")
-    ModelClass = load_class(config["model_config"]["class"])
-    
-    # Handle different model initialization patterns
-    model_init_args = config.get("model_config", {}).get("init_args", {})
-    if model_init_args:
-        # Use explicit init_args from config
-        model = ModelClass(**model_init_args)
-    else:
-        # Fallback to legacy pattern
-        model = ModelClass(input_dim=config["spatial_dim"] ** 2, hidden_dim=256)
-    
-    print("Model initialized.")
+    model_cfg = config["model_config"]
+    ModelClass = load_class(model_cfg["class"])
+    print("Model config:", model_cfg)
+    model = ModelClass(**model_cfg.get("init_args", {}))
 
     # Load checkpoint
     checkpoint_path = config.get("inference_config", {}).get("checkpoint_path", None)

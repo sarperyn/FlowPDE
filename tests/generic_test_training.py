@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     # Dataset
     DatasetClass = load_class(config["dataset_config"]["class"])
-    data_pattern = os.path.join(project_dir, config.get("data_dir", "data"), f"*{config.get('spatial_dim', '')}*")
+    data_pattern = os.path.join(project_dir, config.get("data_dir", "data"), f"*{config.get('spatial_dim', '')}*train*")
     matches = glob(data_pattern)
     if not matches:
         raise FileNotFoundError(f"No data files found matching: {data_pattern}")
@@ -53,8 +53,10 @@ if __name__ == "__main__":
     print("Dataset loaded.")
 
     # Model
-    ModelClass = load_class(config["model_config"]["class"])
-    model = ModelClass(input_dim=config["spatial_dim"] ** 2, hidden_dim=256)
+    model_cfg = config["model_config"]
+    ModelClass = load_class(model_cfg["class"])
+    print("Model config:", model_cfg)
+    model = ModelClass(**model_cfg.get("init_args", {}))
     print("Model initialized.")
 
     # Optimizer
