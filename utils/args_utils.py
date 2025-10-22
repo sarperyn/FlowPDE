@@ -19,8 +19,9 @@ def get_args():
     parser.add_argument('--exp_name', type=str, default=None, 
                         help="Identifier for the experiment, used to create subdirectories for results.")
 
-    parser.add_argument('--wandb', action='store_true', 
-                        help="If set, enables logging with Weights & Biases (WandB) for experiment tracking.") # this is not working rn
+    ## TODO: implement wandb logging later maybe end of project
+    # parser.add_argument('--wandb', action='store_true', 
+    #                     help="If set, enables logging with Weights & Biases (WandB) for experiment tracking.") # this is implemented yet
 
     parser.add_argument('--seed', type=int, default=None, 
                         help="Random seed for reproducibility of results.")
