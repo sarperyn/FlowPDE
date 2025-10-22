@@ -5,19 +5,24 @@ seed: 42
 
 # Data
 data_dir: data/static/poisson
-spatial_dim: 16
+spatial_dim: 32
 
 # Model 
 model_config:
-  class: src.models.mlp.MLP
+  class: src.models.unet.UNet
+  init_args:
+    input_dim: 32
+    base_ch: 2
+    time_dim: 1
+    
 
 # Training
 training_config:
   class: src.trainers.flow_matching.FlowMatchingTrainer
-  batch_size: 1024
-  epoch: 20000
-  print_stats_interval: 100
-  save_interval: 10000
+  batch_size: 16
+  epoch: 500
+  print_stats_interval: 10
+  save_interval: 500
 
 
 # Dataset 

@@ -1,0 +1,56 @@
+# Inference configuration for trained flow matching model
+# Usage: python tests/generic_test_inference.py --config configs/poisson_inference.yaml
+
+# Experiment Name
+name: "poisson_dirichlet"
+seed: 42
+
+# Data
+data_dir: data/static/poisson
+spatial_dim: 32
+
+# Model 
+model_config:
+  class: src.models.unet.UNet
+  init_args:
+    input_dim: 32
+    base_ch: 2
+    time_dim: 1
+
+# Training (used to identify trainer type)
+training_config:
+  class: src.trainers.flow_matching.FlowMatchingTrainer
+
+# Dataset 
+dataset_config:
+  class: src.datasets.poisson.PoissonDataset
+
+# Inference Configuration
+inference_config:
+  # Checkpoint to load (relative to project root)
+  checkpoint_path: checkpoints/poisson_dirichlet_32/model_499.pt
+  
+  # Data pattern for inference (default: validation set)
+  # data_pattern: "data/static/poisson/*8*test*"  # or use test set
+  
+  # Output directory for results
+  output_dir: results/inference
+  
+  # Integration parameters (for flow matching)
+  n_steps: 50                    # Number of ODE integration steps
+  integration_method: rk4   # 'euler', 'midpoint', or 'rk4'
+  
+  # Visualization parameters
+  vis_n_steps: 10                # Number of steps to show in visualization
+  n_samples: 4                   # Number of samples to visualize
+  dpi: 200                       # DPI for saved figures
+  
+  # Evaluation parameters
+  batch_size: 32                 # Batch size for evaluation
+  metrics:                       # Metrics to compute
+    - mse
+    - relative_l2
+  
+  # Sampling parameters
+  sample_batch_size: 4           # How many samples to generate for demo
+  save_samples: true            # Whether to save generated samples
