@@ -63,7 +63,7 @@ class Trainer(ABC):
                     "LR": self.optimizer.param_groups[0]['lr'],
                     "Time": elapsed_time,
                 }
-                # merge optional metrics (e.g., mean_logp, bits_per_dim)
+                # merge optional metrics
                 stats.update(epoch_metrics)
                 print_stats(**stats)
 

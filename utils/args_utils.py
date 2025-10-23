@@ -16,7 +16,7 @@ def get_args():
     parser.add_argument('--device', type=str, default=None, 
                         help="Device to use for computation. Set to 'cuda:0' for GPU or 'cpu' for CPU.")
 
-    parser.add_argument('--exp_name', type=str, default=None, 
+    parser.add_argument('--name', type=str, default=None, 
                         help="Identifier for the experiment, used to create subdirectories for results.")
 
     ## TODO: implement wandb logging later maybe end of project

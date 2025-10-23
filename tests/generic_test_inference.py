@@ -10,7 +10,6 @@ from src.visualization.utils import visualize_flow_evolution
 from src.visualization.inference import (
     sample_flow_matching,
     compute_prediction_error,
-    generate_samples
 )
 
 """

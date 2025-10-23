@@ -34,6 +34,12 @@ if __name__ == "__main__":
     config = override_config(config, args)
     print("Config overridden with command line arguments.")
 
+    # Create output directories
+    output_dir = os.path.join(project_dir, config.get("training_config", {}).get("output_dir"), f"{config.get('name')}_{config.get('spatial_dim','')}")
+    os.makedirs(output_dir, exist_ok=True)
+    print(output_dir)
+    print(f"Output directory: {output_dir}")
+
     # Set random seed for reproducibility
     seed = config.get("seed", 42)
     torch.manual_seed(seed)
