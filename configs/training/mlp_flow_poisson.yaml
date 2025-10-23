@@ -1,29 +1,28 @@
 
 # Experiment Name
-name: "poisson_dirichlet"
+name: "mlp_poisson_dirichlet"
 seed: 42
 
 # Data
 data_dir: data/static/poisson
-spatial_dim: 16
+spatial_dim: 8
 
 # Model 
 model_config:
   class: src.models.mlp.MLP
   init_args:
-    input_dim: 256
+    input_dim: 64
     hidden_dim: 256
-
-
 
 
 # Training
 training_config:
   class: src.trainers.flow_matching.FlowMatchingTrainer
   batch_size: 1024
-  epoch: 20000
+  epoch: 2000
   print_stats_interval: 100
   save_interval: 10000
+  output_dir: results/training
 
 
 # Dataset 

@@ -1,6 +1,6 @@
 
 # Experiment Name
-name: "poisson_dirichlet"
+name: "unet_poisson_dirichlet"
 seed: 42
 
 # Data
@@ -23,6 +23,7 @@ training_config:
   epoch: 500
   print_stats_interval: 10
   save_interval: 500
+  output_dir: results/training
 
 
 # Dataset 
