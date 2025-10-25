@@ -1,0 +1,30 @@
+# Inference configuration for trained flow matching model
+# Usage: python tests/generic_test_inference.py --config configs/inference/mlp_poisson_dirichlet_8_inference.yaml
+
+name: mlp_poisson_dirichlet
+seed: 42
+data_dir: data/static/poisson
+spatial_dim: 8
+model_config:
+  class: src.models.mlp.MLP
+  init_args:
+    input_dim: 64
+    hidden_dim: 256
+training_config:
+  class: src.trainers.flow_matching.FlowMatchingTrainer
+dataset_config:
+  class: src.datasets.poisson.PoissonDataset
+inference_config:
+  checkpoint_path: results/training/mlp_poisson_dirichlet_8/checkpoints/model_latest.pt
+  output_dir: results/inference
+  n_steps: 50
+  integration_method: rk4
+  vis_n_steps: 10
+  n_samples: 4
+  dpi: 200
+  batch_size: 32
+  metrics:
+  - mse
+  - relative_l2
+  sample_batch_size: 4
+  save_samples: true
