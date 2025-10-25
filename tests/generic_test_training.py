@@ -93,6 +93,6 @@ if __name__ == "__main__":
         epochs=config['training_config'].get('epoch', config['training_config'].get('epochs', 1)),
         print_stats_interval=config['training_config'].get('print_stats_interval', 10),
         save_interval=config['training_config'].get('save_interval', 1000),
-        save_dir=os.path.join(project_dir, "checkpoints", f"{config.get('name','exp')}_{config.get('spatial_dim','')}") ,
+        save_dir=os.path.join(project_dir, "results", "training", f"{config.get('name','exp')}_{config.get('spatial_dim','')}", "checkpoints") ,
     )
 

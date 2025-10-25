@@ -149,7 +149,7 @@ if __name__ == "__main__":
     # Load checkpoint
     checkpoint_path = config.get("inference_config", {}).get("checkpoint_path", None)
     if checkpoint_path is None:
-        checkpoint_path = find_latest_checkpoint(project_dir, config, checkpoint_path)
+        checkpoint_path = find_latest_checkpoint(project_dir, config)
 
     if checkpoint_path is None:
         raise FileNotFoundError("No checkpoint found. Specify 'checkpoint_path' in inference_config.")
