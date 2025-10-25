@@ -49,13 +49,33 @@ def load_class(class_path: str):
     return getattr(module, class_name)
 
 
-def find_latest_checkpoint(project_dir: str, config: dict, checkpoint_dir: str) -> str:
-    # Try to find latest checkpoint
-    checkpoint_dir = os.path.join(project_dir, "checkpoints", f"{config.get('name','exp')}_{config.get('spatial_dim','')}")
+def find_latest_checkpoint(project_dir: str, config: dict) -> str:
+    """
+    Find the latest checkpoint file for a given configuration.
+    
+    Args:
+        project_dir: Project root directory (absolute path)
+        config: Configuration dictionary containing 'name' and 'spatial_dim'
+    
+    Returns:
+        Relative path to latest checkpoint from project_dir, or None if not found
+    """
+    name = config.get('name', 'exp')
+    spatial_dim = config.get('spatial_dim', '')
+    
+    # Checkpoints are saved in: results/training/{name}_{spatial_dim}/checkpoints/*.pt
+    checkpoint_dir = os.path.join(project_dir, "results", "training", f"{name}_{spatial_dim}", "checkpoints")
+    
     if os.path.exists(checkpoint_dir):
-        checkpoints = sorted(glob.glob(os.path.join(checkpoint_dir, "model_*.pt")))
+        # Find all model checkpoint files and sort them
+        checkpoint_pattern = os.path.join(checkpoint_dir, "model_*.pt")
+        checkpoints = sorted(glob.glob(checkpoint_pattern))
+        
         if checkpoints:
-            checkpoint_path = checkpoints[-1]
-            return checkpoint_path
+            # Return the latest checkpoint (highest epoch number)
+            latest = checkpoints[-1]
+            # Make path relative to project root
+            return os.path.relpath(latest, project_dir)
+    
     return None
 
