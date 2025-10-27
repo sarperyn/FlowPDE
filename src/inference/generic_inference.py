@@ -1,13 +1,16 @@
 import torch
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
 from glob import glob
 from utils.utils import find_latest_checkpoint, load_config, load_class
 from utils.args_utils import get_args, override_config
 from src.visualization.utils import visualize_flow_evolution
-from src.visualization.inference import (
+from src.inference.inference import (
     sample_flow_matching,
     compute_prediction_error,
 )
@@ -27,6 +30,14 @@ def run_flow_matching_inference(model, dataloader, device, config, output_dir):
     inference_config = config.get("inference_config", {})
     n_steps = inference_config.get("n_steps", 50)
     integration_method = inference_config.get("integration_method", "midpoint")
+    rtol = inference_config.get("rtol", 1e-5)
+    atol = inference_config.get("atol", 1e-7)
+    
+    print(f"\nIntegration method: {integration_method}")
+    if integration_method in ['dopri5', 'dopri8', 'bosh3', 'tsit5', 'adaptive_heun']:
+        print(f"Tolerances: rtol={rtol}, atol={atol}")
+    else:
+        print(f"Number of steps: {n_steps}")
     
     # 1. Visualize flow evolution
     print("\n1. Generating flow evolution visualization...")
@@ -53,7 +64,9 @@ def run_flow_matching_inference(model, dataloader, device, config, output_dir):
             device=device,
             n_steps=n_steps,
             integration_method=integration_method,
-            metric=metric
+            metric=metric,
+            rtol=rtol,
+            atol=atol
         )
         print(f"{metric.upper()}: {errors[f'mean_{metric}']:.6f}")
     
@@ -71,7 +84,9 @@ def run_flow_matching_inference(model, dataloader, device, config, output_dir):
         condition=f_batch,
         n_steps=n_steps,
         device=device,
-        integration_method=integration_method
+        integration_method=integration_method,
+        rtol=rtol,
+        atol=atol
     )
     print(f"Generated {samples.shape[0]} samples")
     print(f"Shape: {samples.shape}")
@@ -92,8 +107,8 @@ def run_flow_matching_inference(model, dataloader, device, config, output_dir):
 
 if __name__ == "__main__":
 
-    # Project root directory
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Project root directory (go up 3 levels: inference -> src -> FlowPDE)
+    project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     # Get config
     args = get_args()

@@ -8,9 +8,11 @@ import numpy as np
 from typing import Optional, Tuple, Dict, Union
 from torch import nn, Tensor
 
+from src.inference.ode_solvers import sample_with_ode_solver, ODEFlowSolver
+
+
 
 @torch.no_grad()
-
 def sample_flow_matching(
     model: nn.Module,
     condition: Tensor,
@@ -18,7 +20,9 @@ def sample_flow_matching(
     device: str = 'cuda',
     integration_method: str = 'euler',
     return_trajectory: bool = False,
-    x_init: Optional[Tensor] = None
+    x_init: Optional[Tensor] = None,
+    rtol: float = 1e-5,
+    atol: float = 1e-7
 ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
     """
     Sample from a trained flow matching model given conditioning.
@@ -28,9 +32,13 @@ def sample_flow_matching(
         condition: Conditioning tensor (B, D) or (B, H, W)
         n_steps: Number of integration steps from t=0 to t=1
         device: Device for computation
-        integration_method: 'euler' or 'midpoint' for ODE integration
+        integration_method: Integration method. Options:
+            - Fixed-step: 'euler', 'midpoint', 'rk4'
+            - Adaptive (torchdiffeq): 'dopri5', 'dopri8', 'bosh3', 'tsit5'
         return_trajectory: If True, return full trajectory (n_steps+1, B, D)
         x_init: Optional initial noise (B, D). If None, sample from N(0, I)
+        rtol: Relative tolerance for adaptive solvers (default: 1e-5)
+        atol: Absolute tolerance for adaptive solvers (default: 1e-7)
     
     Returns:
         samples: Final samples at t=1, shape (B, D) or (B, H, W)
@@ -38,69 +46,92 @@ def sample_flow_matching(
     """
     model.eval()
     
+    # We are only allowed to use torchdiffeq solvers if avaliable else throw error
+    try:
+        ode_solvers = ODEFlowSolver.ADAPTIVE_SOLVERS + ODEFlowSolver.FIXED_STEP_SOLVERS
+        if integration_method in ode_solvers:
+            return sample_with_ode_solver(
+                model=model,
+                condition=condition,
+                solver=integration_method,
+                rtol=rtol,
+                atol=atol,
+                n_steps=n_steps,
+                device=device,
+                return_trajectory=return_trajectory
+            )
+    except ImportError:
+        raise ImportError("Torchdiffeq is not installed. ODE solvers are unavailable.")
+    
+        
+
+        
+    # We only allowed to use torchdiffeq solvers if available
+
+    # Fallback to manual integration
     # Flatten condition if needed
-    original_shape = condition.shape
-    if condition.dim() > 2:
-        condition = condition.flatten(start_dim=1)
+    # original_shape = condition.shape
+    # if condition.dim() > 2:
+    #     condition = condition.flatten(start_dim=1)
     
-    condition = condition.float().to(device)
-    batch_size, dim = condition.shape
+    # condition = condition.float().to(device)
+    # batch_size, dim = condition.shape
     
-    # Initialize from noise
-    if x_init is None:
-        x_t = torch.randn(batch_size, dim, device=device)
-    else:
-        x_t = x_init.flatten(start_dim=1).float().to(device)
+    # # Initialize from noise
+    # if x_init is None:
+    #     x_t = torch.randn(batch_size, dim, device=device)
+    # else:
+    #     x_t = x_init.flatten(start_dim=1).float().to(device)
     
-    # Time steps from 0 to 1
-    t_vals = torch.linspace(0, 1, n_steps + 1, device=device)
-    dt = 1.0 / n_steps
+    # # Time steps from 0 to 1
+    # t_vals = torch.linspace(0, 1, n_steps + 1, device=device)
+    # dt = 1.0 / n_steps
     
-    # Store trajectory if requested
-    if return_trajectory:
-        trajectory = [x_t.clone().cpu()]
+    # # Store trajectory if requested
+    # if return_trajectory:
+    #     trajectory = [x_t.clone().cpu()]
     
-    # Integrate ODE
-    for i in range(n_steps):
-        t_current = t_vals[i]
-        t_next = t_vals[i + 1]
+    # # Integrate ODE
+    # for i in range(n_steps):
+    #     t_current = t_vals[i]
+    #     t_next = t_vals[i + 1]
         
-        if integration_method == 'midpoint':
-            # Midpoint method
-            t_mid = (t_current + t_next) / 2
-            t_mid_batch = t_mid.repeat(batch_size, 1)
-            v_t = model(x_t, condition, t_mid_batch)
-        elif integration_method == 'rk4':
-            # RK4 for even better accuracy
-            t_batch = t_current.repeat(batch_size, 1)
-            t_mid = (t_current + t_next) / 2
-            t_mid_batch = t_mid.repeat(batch_size, 1)
-            t_next_batch = t_next.repeat(batch_size, 1)
+    #     if integration_method == 'midpoint':
+    #         # Midpoint method
+    #         t_mid = (t_current + t_next) / 2
+    #         t_mid_batch = t_mid.repeat(batch_size, 1)
+    #         v_t = model(x_t, condition, t_mid_batch)
+    #     elif integration_method == 'rk4':
+    #         # RK4 for even better accuracy
+    #         t_batch = t_current.repeat(batch_size, 1)
+    #         t_mid = (t_current + t_next) / 2
+    #         t_mid_batch = t_mid.repeat(batch_size, 1)
+    #         t_next_batch = t_next.repeat(batch_size, 1)
             
-            k1 = model(x_t, condition, t_batch)
-            k2 = model(x_t + 0.5 * dt * k1, condition, t_mid_batch)
-            k3 = model(x_t + 0.5 * dt * k2, condition, t_mid_batch)
-            k4 = model(x_t + dt * k3, condition, t_next_batch)
+    #         k1 = model(x_t, condition, t_batch)
+    #         k2 = model(x_t + 0.5 * dt * k1, condition, t_mid_batch)
+    #         k3 = model(x_t + 0.5 * dt * k2, condition, t_mid_batch)
+    #         k4 = model(x_t + dt * k3, condition, t_next_batch)
             
-            v_t = (k1 + 2*k2 + 2*k3 + k4) / 6
-        else:  # euler (default)
-            t_batch = t_current.repeat(batch_size, 1)
-            v_t = model(x_t, condition, t_batch)
+    #         v_t = (k1 + 2*k2 + 2*k3 + k4) / 6
+    #     else:  # euler (default)
+    #         t_batch = t_current.repeat(batch_size, 1)
+    #         v_t = model(x_t, condition, t_batch)
         
-        x_t = x_t + dt * v_t
+    #     x_t = x_t + dt * v_t
         
-        if return_trajectory:
-            trajectory.append(x_t.clone().cpu())
+    #     if return_trajectory:
+    #         trajectory.append(x_t.clone().cpu())
     
-    # Reshape to original spatial dimensions if needed
-    if len(original_shape) > 2:
-        x_t = x_t.view(original_shape)
+    # # Reshape to original spatial dimensions if needed
+    # if len(original_shape) > 2:
+    #     x_t = x_t.view(original_shape)
     
-    if return_trajectory:
-        trajectory = torch.stack(trajectory, dim=0)  # (n_steps+1, B, D)
-        return x_t, trajectory
+    # if return_trajectory:
+    #     trajectory = torch.stack(trajectory, dim=0)  # (n_steps+1, B, D)
+    #     return x_t, trajectory
     
-    return x_t
+    # return x_t
 
 
 @torch.no_grad()
@@ -110,7 +141,9 @@ def compute_prediction_error(
     device: str = 'cuda',
     n_steps: int = 50,
     integration_method: str = 'euler',
-    metric: str = 'mse'
+    metric: str = 'mse',
+    rtol: float = 1e-5,
+    atol: float = 1e-7
 ) -> Dict[str, float]:
     """
     Compute prediction error on a dataset.
@@ -122,6 +155,8 @@ def compute_prediction_error(
         n_steps: Number of integration steps
         integration_method: ODE solver to use
         metric: 'mse', 'mae', or 'relative_l2'
+        rtol: Relative tolerance for adaptive solvers
+        atol: Absolute tolerance for adaptive solvers
     
     Returns:
         Dictionary with error metrics
@@ -147,7 +182,9 @@ def compute_prediction_error(
             condition=f,
             n_steps=n_steps,
             device=device,
-            integration_method=integration_method
+            integration_method=integration_method,
+            rtol=rtol,
+            atol=atol
         )
         
         # Flatten for error computation
