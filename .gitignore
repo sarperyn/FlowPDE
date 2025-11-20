@@ -6,6 +6,7 @@
 /examples
 /docs
 /results
+/configs
 
 .DS_Store
 *.pyc
