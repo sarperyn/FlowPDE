@@ -1,6 +1,12 @@
 import math
 import torch
 from torch import nn, Tensor
+import sys
+import os
+
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
 from utils.activation_functions import Swish
 
@@ -35,7 +41,17 @@ class ConvBlock(nn.Module):
 
 # --- UNet with conditioning (x, f) and time embedding (t) ---
 class UNet(nn.Module):
-    """U-Net that automatically sets depth based on input_dim, conditioned on f and time t."""
+    """U-Net architecture for flow matching on spatial domains.
+    
+    A convolutional neural network with encoder-decoder architecture that
+    automatically adjusts depth based on spatial resolution. Ideal for
+    2D PDE problems.
+    
+    Args:
+        input_dim: Spatial resolution (assumes square grid)
+        base_ch: Base number of channels (doubled at each downsampling)
+        time_dim: Dimension of time embedding (default: 1)
+    """
     def __init__(self, input_dim: int = 64, base_ch: int = 64, time_dim: int = 1):
         super().__init__()
         self.input_dim = input_dim
