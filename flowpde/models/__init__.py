@@ -2,5 +2,7 @@
 Model architectures for FlowPDE
 """
 
-from .mlp import *
-from .unet import *
+from .mlp import MLP
+from .unet import UNet
+
+__all__ = ['MLP', 'UNet']
