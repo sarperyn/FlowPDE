@@ -2,12 +2,28 @@ import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
 
-from src.trainers.trainer import Trainer
+from flowpde.trainers.trainer import Trainer
 
 from typing import Iterable, Dict, Optional, Tuple, Union
 
 class FlowMatchingTrainer(Trainer):
-    "Flow matching training for CNFs"
+    """Flow matching training for CNFs.
+    
+    This trainer wraps the FlowMatching flow class and provides
+    the training loop interface. For new code, consider using
+    the FlowMatching class directly from flowpde.flows.
+    """
+
+    def __init__(self, *args, path: str = "linear", **kwargs):
+        """
+        Initialize flow matching trainer.
+        
+        Args:
+            path: Interpolation path ('linear' or 'conditional_optimal_transport')
+            *args, **kwargs: Passed to parent Trainer class
+        """
+        super().__init__(*args, **kwargs)
+        self.path = path
 
     def train_one_epoch(self, data_loader: Iterable):
 
@@ -20,25 +36,50 @@ class FlowMatchingTrainer(Trainer):
         epoch_loss = batch_loss / len(data_loader)
         return epoch_loss
 
-    def compute_loss(self, batch: Dict[str, torch.Tensor], path: str = "linear"):
+    def compute_loss(self, batch: Dict[str, torch.Tensor], path: str = None):
+        """
+        Compute flow matching loss.
+        
+        Args:
+            batch: Dictionary with 'u' (target) and 'f' (condition)
+            path: Override default path (optional)
+        
+        Returns:
+            Loss value
+        """
+        if path is None:
+            path = self.path
 
-        # can be another function
-        ################################################################
+        # Extract and flatten data
         x_1       = batch["u"].flatten(start_dim=1).to(self.device)
         x_0       = torch.randn(x_1.shape).to(self.device)
         condition = batch["f"].flatten(start_dim=1).to(self.device)
         t         = torch.rand((batch["f"].shape[0], 1), device=self.device)
-        ################################################################
 
         if path == "linear":
             x_t, dx_t = self.linear_flow_matching(x_1=x_1, x_0=x_0, t=t)
-        
+        elif path == "conditional_optimal_transport":
+            x_t, dx_t = self.ot_flow_matching(x_1=x_1, x_0=x_0, t=t)
+        else:
+            raise ValueError(f"Unknown path type: {path}")
 
         return F.mse_loss(self.model(x_t, condition, t), dx_t)
     
     def linear_flow_matching(self, x_1: torch.Tensor, x_0: torch.Tensor, t: torch.Tensor):
-
+        """Linear interpolation path."""
         x_t  = (1 - t) * x_0 + t * x_1
         dx_t = x_1 - x_0
 
+        return x_t, dx_t
+    
+    def ot_flow_matching(self, x_1: torch.Tensor, x_0: torch.Tensor, t: torch.Tensor, sigma: float = 0.0):
+        """Optimal transport conditional flow."""
+        if sigma > 0:
+            noise = torch.randn_like(x_0)
+            noise_coeff = sigma * torch.sqrt(t * (1 - t))
+            x_t = t * x_1 + (1 - t) * x_0 + noise_coeff * noise
+        else:
+            x_t = t * x_1 + (1 - t) * x_0
+        
+        dx_t = x_1 - x_0
         return x_t, dx_t

@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from typing import Iterable, Dict, Any
 
 from utils.utils import print_stats, save_model
-from src.visualization.utils import plot_curve
+from flowpde.visualization.utils import plot_curve
 
 
 
