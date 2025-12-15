@@ -33,10 +33,13 @@ Usage Example:
 
 from .poisson import PoissonForwardDataset, PoissonInverseDataset
 from .burgers import BurgersForwardDataset, BurgersInverseDataset
+from .wrappers import FlowDatasetWrapper, InverseFlowDatasetWrapper
 
 __all__ = [
     'PoissonForwardDataset',
     'PoissonInverseDataset',
     'BurgersForwardDataset',
     'BurgersInverseDataset',
+    'FlowDatasetWrapper',
+    'InverseFlowDatasetWrapper',
 ]
