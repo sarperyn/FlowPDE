@@ -42,6 +42,11 @@ class BaseFlow(ABC, nn.Module):
         self.base_distribution = base_distribution
         self._extra_kwargs = kwargs
     
+    @property
+    def model_device(self) -> torch.device:
+        """Get the device of the model parameters."""
+        return next(self.model.parameters()).device
+    
     @abstractmethod
     def forward_transform(
         self,

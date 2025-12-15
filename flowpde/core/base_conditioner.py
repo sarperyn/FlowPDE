@@ -19,7 +19,7 @@ class BaseConditioner(ABC, nn.Module):
     
     Examples:
     - Concatenation: Simply concatenate condition with input
-    - Cross-attention: Use attention mechanism to condition
+    - Cross-attention: Use attention mechanism to condition 
     - FiLM: Feature-wise Linear Modulation
     - Adaptive Instance Normalization
     """
