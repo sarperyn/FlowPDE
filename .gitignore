@@ -1,5 +1,5 @@
 # Dataset paths
-/data
+/data/datasets
 /dataset_generation
 /checkpoints
 /__pycache__
