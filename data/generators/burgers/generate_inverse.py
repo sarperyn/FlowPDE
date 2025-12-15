@@ -211,9 +211,9 @@ def main():
         grf_tau=args.grf_tau
     )
     
-    # Save datasets
-    train_path = output_dir / 'train.pt'
-    test_path = output_dir / 'test.pt'
+    # Save datasets with resolution in filename
+    train_path = output_dir / f'train_{args.resolution}.pt'
+    test_path = output_dir / f'test_{args.resolution}.pt'
     
     torch.save(train_data, train_path)
     torch.save(test_data, test_path)
@@ -228,7 +228,7 @@ def main():
     
     # Visualize
     if args.visualize:
-        vis_path = output_dir / 'visualization.png'
+        vis_path = output_dir / f'visualization_{args.resolution}.png'
         visualize_samples(train_data, n_vis=4, save_path=str(vis_path))
 
 

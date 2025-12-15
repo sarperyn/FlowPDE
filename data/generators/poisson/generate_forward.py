@@ -168,16 +168,23 @@ class PoissonSolver:
         return A.tocsr()
 
 
-def generate_dataset(n_samples: int, resolution: int, 
+def generate_dataset(n_samples: int, resolution: int,
+                     source_noise_level: float = 0.0, coeff_noise_level: float = 0.0,
                      grf_alpha: float = 2.0, grf_tau: float = 3.0) -> Dict[str, torch.Tensor]:
     """
     Generate forward problem dataset.
+    
+    Args:
+        source_noise_level: Std of Gaussian noise added to source term
+        coeff_noise_level: Std of Gaussian noise added to coefficient
     
     Returns:
         dict with keys:
             'source': Source term f (n_samples, 1, H, W)
             'coefficient': Diffusion coefficient a (n_samples, 1, H, W)
             'solution': Solution u (n_samples, 1, H, W)
+            'source_noise': Noise added to source (n_samples, 1, H, W)
+            'coefficient_noise': Noise added to coefficient (n_samples, 1, H, W)
     """
     grf = GaussianRandomField(alpha=grf_alpha, tau=grf_tau, size=resolution)
     solver = PoissonSolver(size=resolution)
@@ -185,28 +192,50 @@ def generate_dataset(n_samples: int, resolution: int,
     sources = []
     coefficients = []
     solutions = []
+    source_noise_list = []
+    coeff_noise_list = []
     
-    print(f"Generating {n_samples} forward problem samples...")
+    print(f"Generating {n_samples} forward problem samples (source noise: {source_noise_level}, coeff noise: {coeff_noise_level})...")
     for _ in tqdm(range(n_samples)):
         # Generate random source term
-        f = grf.sample(smooth_boundary=True)
+        f_clean = grf.sample(smooth_boundary=True)
+        
+        # Add source noise
+        if source_noise_level > 0:
+            source_noise = np.random.randn(*f_clean.shape) * source_noise_level * np.std(f_clean)
+            f = f_clean + source_noise
+        else:
+            source_noise = np.zeros_like(f_clean)
+            f = f_clean
         
         # Generate random coefficient (positive, bounded away from zero)
         a_raw = grf.sample(smooth_boundary=False)
-        a = 1.0 + 0.5 * a_raw  # Ensure a > 0.5
+        a_clean = 1.0 + 0.5 * a_raw  # Ensure a > 0.5
         
-        # Solve PDE
+        # Add coefficient noise
+        if coeff_noise_level > 0:
+            coeff_noise = np.random.randn(*a_clean.shape) * coeff_noise_level * np.std(a_clean)
+            a = np.maximum(a_clean + coeff_noise, 0.1)  # Keep positive
+        else:
+            coeff_noise = np.zeros_like(a_clean)
+            a = a_clean
+        
+        # Solve PDE with noisy inputs
         u = solver.solve(f, a)
         
         sources.append(f)
-        coefficients.append(a)
+        coefficients.append(a_clean)  # Store clean coefficient
         solutions.append(u)
+        source_noise_list.append(source_noise)
+        coeff_noise_list.append(coeff_noise)
     
     # Convert to tensors with shape (N, 1, H, W)
     dataset = {
         'source': torch.tensor(np.array(sources), dtype=torch.float32).unsqueeze(1),
         'coefficient': torch.tensor(np.array(coefficients), dtype=torch.float32).unsqueeze(1),
         'solution': torch.tensor(np.array(solutions), dtype=torch.float32).unsqueeze(1),
+        'source_noise': torch.tensor(np.array(source_noise_list), dtype=torch.float32).unsqueeze(1),
+        'coefficient_noise': torch.tensor(np.array(coeff_noise_list), dtype=torch.float32).unsqueeze(1),
     }
     
     return dataset
@@ -255,6 +284,8 @@ def main():
     parser.add_argument('--n_train', type=int, default=5000, help='Number of training samples')
     parser.add_argument('--n_test', type=int, default=1000, help='Number of test samples')
     parser.add_argument('--resolution', type=int, default=64, help='Grid resolution')
+    parser.add_argument('--source_noise_level', type=float, default=0.0, help='Source term noise level')
+    parser.add_argument('--coeff_noise_level', type=float, default=0.0, help='Coefficient noise level')
     parser.add_argument('--grf_alpha', type=float, default=2.0, help='GRF smoothness')
     parser.add_argument('--grf_tau', type=float, default=3.0, help='GRF length scale')
     parser.add_argument('--visualize', action='store_true', help='Generate visualization')
@@ -268,6 +299,8 @@ def main():
     train_data = generate_dataset(
         n_samples=args.n_train,
         resolution=args.resolution,
+        source_noise_level=args.source_noise_level,
+        coeff_noise_level=args.coeff_noise_level,
         grf_alpha=args.grf_alpha,
         grf_tau=args.grf_tau
     )
@@ -276,13 +309,15 @@ def main():
     test_data = generate_dataset(
         n_samples=args.n_test,
         resolution=args.resolution,
+        source_noise_level=args.source_noise_level,
+        coeff_noise_level=args.coeff_noise_level,
         grf_alpha=args.grf_alpha,
         grf_tau=args.grf_tau
     )
     
-    # Save datasets
-    train_path = output_dir / 'train.pt'
-    test_path = output_dir / 'test.pt'
+    # Save datasets with resolution in filename
+    train_path = output_dir / f'train_{args.resolution}.pt'
+    test_path = output_dir / f'test_{args.resolution}.pt'
     
     torch.save(train_data, train_path)
     torch.save(test_data, test_path)
@@ -299,7 +334,7 @@ def main():
     
     # Visualize
     if args.visualize:
-        vis_path = output_dir / 'visualization.png'
+        vis_path = output_dir / f'visualization_{args.resolution}.png'
         visualize_samples(train_data, n_vis=4, save_path=str(vis_path))
 
 

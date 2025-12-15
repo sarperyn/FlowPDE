@@ -129,18 +129,22 @@ class PoissonSolver:
 
 
 def generate_dataset(n_samples: int, resolution: int, noise_level: float = 0.0,
+                     coeff_noise_level: float = 0.0,
                      grf_alpha: float = 2.0, grf_tau: float = 3.0) -> Dict[str, torch.Tensor]:
     """
     Generate inverse problem dataset.
     
     Args:
         noise_level: Standard deviation of Gaussian noise added to observations
+        coeff_noise_level: Standard deviation of Gaussian noise added to coefficients
     
     Returns:
         dict with keys:
             'observation': Observed solution u (possibly noisy) (n_samples, 1, H, W)
             'source': True source term f (n_samples, 1, H, W)
             'coefficient': True coefficient a (n_samples, 1, H, W)
+            'observation_noise': Noise added to observations (n_samples, 1, H, W)
+            'coefficient_noise': Noise added to coefficients (n_samples, 1, H, W)
     """
     grf = GaussianRandomField(alpha=grf_alpha, tau=grf_tau, size=resolution)
     solver = PoissonSolver(size=resolution)
@@ -148,33 +152,48 @@ def generate_dataset(n_samples: int, resolution: int, noise_level: float = 0.0,
     observations = []
     sources = []
     coefficients = []
+    obs_noise_list = []
+    coeff_noise_list = []
     
-    print(f"Generating {n_samples} inverse problem samples (noise level: {noise_level})...")
+    print(f"Generating {n_samples} inverse problem samples (obs noise: {noise_level}, coeff noise: {coeff_noise_level})...")
     for _ in tqdm(range(n_samples)):
         # Generate random parameters
         f = grf.sample(smooth_boundary=True)
         a_raw = grf.sample(smooth_boundary=False)
-        a = 1.0 + 0.5 * a_raw
+        a_clean = 1.0 + 0.5 * a_raw
+        
+        # Add coefficient noise
+        if coeff_noise_level > 0:
+            coeff_noise = np.random.randn(*a_clean.shape) * coeff_noise_level * np.std(a_clean)
+            a = np.maximum(a_clean + coeff_noise, 0.1)  # Keep coefficient positive
+        else:
+            coeff_noise = np.zeros_like(a_clean)
+            a = a_clean
         
         # Solve forward problem to get "true" solution
         u_true = solver.solve(f, a)
         
         # Add observation noise
         if noise_level > 0:
-            noise = np.random.randn(*u_true.shape) * noise_level * np.std(u_true)
-            u_obs = u_true + noise
+            obs_noise = np.random.randn(*u_true.shape) * noise_level * np.std(u_true)
+            u_obs = u_true + obs_noise
         else:
+            obs_noise = np.zeros_like(u_true)
             u_obs = u_true
         
         observations.append(u_obs)
         sources.append(f)
-        coefficients.append(a)
+        coefficients.append(a_clean)  # Store clean coefficient
+        obs_noise_list.append(obs_noise)
+        coeff_noise_list.append(coeff_noise)
     
     # For inverse problem: input is observation, output is parameters
     dataset = {
         'observation': torch.tensor(np.array(observations), dtype=torch.float32).unsqueeze(1),
         'source': torch.tensor(np.array(sources), dtype=torch.float32).unsqueeze(1),
         'coefficient': torch.tensor(np.array(coefficients), dtype=torch.float32).unsqueeze(1),
+        'observation_noise': torch.tensor(np.array(obs_noise_list), dtype=torch.float32).unsqueeze(1),
+        'coefficient_noise': torch.tensor(np.array(coeff_noise_list), dtype=torch.float32).unsqueeze(1),
     }
     
     return dataset
@@ -222,6 +241,7 @@ def main():
     parser = argparse.ArgumentParser(description='Generate Poisson inverse problem dataset')
     parser.add_argument('--n_train', type=int, default=5000, help='Number of training samples')
     parser.add_argument('--n_test', type=int, default=1000, help='Number of test samples')
+    parser.add_argument('--coeff_noise_level', type=float, default=0.0, help='Coefficient noise level')
     parser.add_argument('--resolution', type=int, default=64, help='Grid resolution')
     parser.add_argument('--noise_level', type=float, default=0.01, help='Observation noise level')
     parser.add_argument('--grf_alpha', type=float, default=2.0, help='GRF smoothness')
@@ -251,9 +271,9 @@ def main():
         grf_tau=args.grf_tau
     )
     
-    # Save datasets
-    train_path = output_dir / 'train.pt'
-    test_path = output_dir / 'test.pt'
+    # Save datasets with resolution in filename
+    train_path = output_dir / f'train_{args.resolution}.pt'
+    test_path = output_dir / f'test_{args.resolution}.pt'
     
     torch.save(train_data, train_path)
     torch.save(test_data, test_path)
@@ -270,7 +290,7 @@ def main():
     
     # Visualize
     if args.visualize:
-        vis_path = output_dir / 'visualization.png'
+        vis_path = output_dir / f'visualization_{args.resolution}.png'
         visualize_samples(train_data, n_vis=4, save_path=str(vis_path))
 
 

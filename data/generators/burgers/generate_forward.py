@@ -171,15 +171,20 @@ class BurgersSolver:
 
 def generate_dataset(n_samples: int, resolution: int, T_final: float = 1.0,
                      viscosity: float = 0.01, n_snapshots: int = 50,
+                     initial_noise_level: float = 0.0,
                      grf_alpha: float = 2.0, grf_tau: float = 5.0) -> Dict[str, torch.Tensor]:
     """
     Generate forward problem dataset.
+    
+    Args:
+        initial_noise_level: Std of Gaussian noise added to initial condition
     
     Returns:
         dict with keys:
             'initial': Initial condition u0 (n_samples, 1, resolution)
             'final': Solution at T (n_samples, 1, resolution)
             'trajectory': Full trajectory (n_samples, n_snapshots, resolution)
+            'initial_noise': Noise added to initial condition (n_samples, 1, resolution)
     """
     grf = GaussianRandomField1D(alpha=grf_alpha, tau=grf_tau, size=resolution)
     solver = BurgersSolver(viscosity=viscosity, size=resolution)
@@ -187,23 +192,34 @@ def generate_dataset(n_samples: int, resolution: int, T_final: float = 1.0,
     initials = []
     finals = []
     trajectories = []
+    initial_noise_list = []
     
-    print(f"Generating {n_samples} forward problem samples...")
+    print(f"Generating {n_samples} forward problem samples (initial noise: {initial_noise_level})...")
     for _ in tqdm(range(n_samples)):
         # Generate random initial condition
-        u0 = grf.sample()
+        u0_clean = grf.sample()
         
-        # Solve for trajectory
+        # Add initial condition noise
+        if initial_noise_level > 0:
+            initial_noise = np.random.randn(*u0_clean.shape) * initial_noise_level * np.std(u0_clean)
+            u0 = u0_clean + initial_noise
+        else:
+            initial_noise = np.zeros_like(u0_clean)
+            u0 = u0_clean
+        
+        # Solve for trajectory with noisy initial condition
         trajectory = solver.solve_trajectory(u0, T=T_final, n_snapshots=n_snapshots)
         
         initials.append(u0)
         finals.append(trajectory[-1])
         trajectories.append(trajectory)
+        initial_noise_list.append(initial_noise)
     
     dataset = {
         'initial': torch.tensor(np.array(initials), dtype=torch.float32).unsqueeze(1),
         'final': torch.tensor(np.array(finals), dtype=torch.float32).unsqueeze(1),
         'trajectory': torch.tensor(np.array(trajectories), dtype=torch.float32),
+        'initial_noise': torch.tensor(np.array(initial_noise_list), dtype=torch.float32).unsqueeze(1),
         'time': torch.linspace(0, T_final, n_snapshots),
         'viscosity': viscosity,
     }
@@ -259,6 +275,7 @@ def main():
     parser.add_argument('--T_final', type=float, default=1.0, help='Final time')
     parser.add_argument('--viscosity', type=float, default=0.01, help='Viscosity parameter')
     parser.add_argument('--n_snapshots', type=int, default=50, help='Number of time snapshots')
+    parser.add_argument('--initial_noise_level', type=float, default=0.0, help='Initial condition noise level')
     parser.add_argument('--grf_alpha', type=float, default=2.0, help='GRF smoothness')
     parser.add_argument('--grf_tau', type=float, default=5.0, help='GRF length scale')
     parser.add_argument('--visualize', action='store_true', help='Generate visualization')
@@ -275,6 +292,7 @@ def main():
         T_final=args.T_final,
         viscosity=args.viscosity,
         n_snapshots=args.n_snapshots,
+        initial_noise_level=args.initial_noise_level,
         grf_alpha=args.grf_alpha,
         grf_tau=args.grf_tau
     )
@@ -286,13 +304,14 @@ def main():
         T_final=args.T_final,
         viscosity=args.viscosity,
         n_snapshots=args.n_snapshots,
+        initial_noise_level=args.initial_noise_level,
         grf_alpha=args.grf_alpha,
         grf_tau=args.grf_tau
     )
     
-    # Save datasets
-    train_path = output_dir / 'train.pt'
-    test_path = output_dir / 'test.pt'
+    # Save datasets with resolution in filename
+    train_path = output_dir / f'train_{args.resolution}.pt'
+    test_path = output_dir / f'test_{args.resolution}.pt'
     
     torch.save(train_data, train_path)
     torch.save(test_data, test_path)
@@ -309,7 +328,7 @@ def main():
     
     # Visualize
     if args.visualize:
-        vis_path = output_dir / 'visualization.png'
+        vis_path = output_dir / f'visualization_{args.resolution}.png'
         visualize_samples(train_data, n_vis=4, save_path=str(vis_path))
 
 
