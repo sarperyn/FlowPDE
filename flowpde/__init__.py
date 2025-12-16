@@ -7,7 +7,7 @@ Quick Start:
     >>> from flowpde.models import UNet
     >>> 
     >>> # Create model and flow
-    >>> model = UNet(input_dim=64, hidden_ch=64)
+    >>> model = UNet(input_dim=64, base_ch=64)
     >>> flow = FlowMatching(model)
     >>> 
     >>> # Train
@@ -32,6 +32,12 @@ Architecture:
 from flowpde.flows import FlowMatching, ContinuousNormalizingFlow, RectifiedFlow
 from flowpde.models import MLP, UNet
 from flowpde.solvers import ODEFlowSolver
+from flowpde.trainers import FlowMatchingTrainer, CNFTrainer, RectifiedFlowTrainer
+from flowpde.datasets import (
+    PoissonForwardDataset, PoissonInverseDataset,
+    BurgersForwardDataset, BurgersInverseDataset,
+    FlowDatasetWrapper, InverseFlowDatasetWrapper
+)
 
 # Public API
 __all__ = [
@@ -47,5 +53,18 @@ __all__ = [
     
     # Solvers
     'ODEFlowSolver',
+    
+    # Trainers
+    'FlowMatchingTrainer',
+    'CNFTrainer',
+    'RectifiedFlowTrainer',
+    
+    # Datasets
+    'PoissonForwardDataset',
+    'PoissonInverseDataset',
+    'BurgersForwardDataset',
+    'BurgersInverseDataset',
+    'FlowDatasetWrapper',
+    'InverseFlowDatasetWrapper',
 ]
 
