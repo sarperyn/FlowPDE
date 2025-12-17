@@ -3,6 +3,11 @@ Rectified Flow for learning straight transport paths.
 
 Rectified flow iteratively straightens the transport paths between distributions,
 leading to faster sampling and better generation quality.
+
+This is a specialized version of Flow Matching that:
+1. Always uses linear interpolation paths (straight lines)
+2. Adds iterative reflow procedure for path straightening
+3. Supports different time sampling strategies
 """
 
 import torch
@@ -10,23 +15,23 @@ import torch.nn.functional as F
 from torch import nn, Tensor
 from typing import Dict, Optional, Tuple
 
-from flowpde.core.base_flow import BaseFlow
+from flowpde.flows.flow_matching import FlowMatching
 
 
-class RectifiedFlow(BaseFlow):
+class RectifiedFlow(FlowMatching):
     """
-    Rectified Flow for learning straight transport paths.
+    Rectified Flow - A specialized Flow Matching variant.
     
-    Rectified flow learns to transport between distributions along straight lines
-    through an iterative straightening procedure. This leads to:
-    - Faster sampling (fewer steps needed)
+    Inherits from FlowMatching and fixes path='linear' while adding:
+    - Iterative reflow procedure for straighter paths
+    - Alternative time sampling strategies (logit-normal)
+    - Straightness estimation metrics
+    
+    Mathematically equivalent to FlowMatching with path='linear', but emphasizes
+    the iterative straightening procedure that leads to:
+    - Faster sampling (fewer ODE steps needed)
     - Better generation quality
     - More stable training
-    
-    The key idea is to minimize:
-        L = E[||v(x_t, t) - (x_1 - x_0)||^2]
-    
-    where x_t = (1-t)x_0 + t*x_1 and the target velocity is constant.
     
     Args:
         model: Neural network predicting velocity v(x, condition, t)
@@ -44,21 +49,15 @@ class RectifiedFlow(BaseFlow):
         reflow_iterations: int = 1,
         time_sampling: str = 'uniform'
     ):
-        super().__init__(model)
+        # Initialize FlowMatching with linear path (rectified flow always uses straight lines)
+        super().__init__(model, path='linear', sigma=0.0)
+        
         self.reflow_iterations = reflow_iterations
         self.time_sampling = time_sampling
         self.current_iteration = 0
         
         if time_sampling not in ['uniform', 'logit_normal']:
             raise ValueError(f"Unknown time sampling: {time_sampling}")
-    
-    def sample_base_distribution(
-        self,
-        shape: Tuple[int, ...],
-        device: torch.device
-    ) -> Tensor:
-        """Sample from base distribution (standard Gaussian)."""
-        return torch.randn(*shape, device=device)
     
     def sample_time(self, batch_size: int, device: torch.device) -> Tensor:
         """
@@ -81,35 +80,6 @@ class RectifiedFlow(BaseFlow):
         else:
             raise ValueError(f"Unknown time sampling: {self.time_sampling}")
     
-    def compute_straight_path(
-        self,
-        x_0: Tensor,
-        x_1: Tensor,
-        t: Tensor
-    ) -> Tuple[Tensor, Tensor]:
-        """
-        Compute interpolation along straight path.
-        
-        Args:
-            x_0: Source samples
-            x_1: Target samples  
-            t: Time values in [0, 1]
-        
-        Returns:
-            x_t: Interpolated samples
-            v_t: Target velocity (constant along path)
-        """
-        # Expand t to match dimensions
-        t_expanded = t.view(-1, *([1] * (x_0.dim() - 1)))
-        
-        # Linear interpolation
-        x_t = (1 - t_expanded) * x_0 + t_expanded * x_1
-        
-        # Constant velocity along straight line
-        v_t = x_1 - x_0
-        
-        return x_t, v_t
-    
     def compute_loss(
         self,
         batch: Dict[str, Tensor],
@@ -118,8 +88,8 @@ class RectifiedFlow(BaseFlow):
         """
         Compute rectified flow loss.
         
-        The loss encourages the model to predict constant velocities
-        along straight paths from noise to data.
+        Overrides FlowMatching.compute_loss() to use custom time sampling
+        (uniform or logit-normal instead of always uniform).
         
         Args:
             batch: Dictionary with 'u' (target) and 'f' (condition)
@@ -132,14 +102,14 @@ class RectifiedFlow(BaseFlow):
         condition = batch["f"].flatten(start_dim=1).to(self.model_device)
         batch_size = x_1.shape[0]
         
-        # Sample base distribution
+        # Sample base distribution (inherited from FlowMatching)
         x_0 = self.sample_base_distribution(x_1.shape, self.model_device)
         
-        # Sample time
+        # Sample time with custom strategy (this is the main difference!)
         t = self.sample_time(batch_size, self.model_device)
         
-        # Compute straight path interpolation
-        x_t, v_target = self.compute_straight_path(x_0, x_1, t)
+        # Compute conditional flow using inherited linear path method
+        x_t, v_target = self.compute_conditional_flow(x_0, x_1, t)
         
         # Predict velocity
         v_pred = self.model(x_t, condition, t)
@@ -228,110 +198,6 @@ class RectifiedFlow(BaseFlow):
             if verbose and (epoch + 1) % max(1, epochs // 10) == 0:
                 print(f"  Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.6f}")
     
-    def sample(
-        self,
-        condition: Tensor,
-        n_steps: int = 50,
-        solver: str = 'dopri5',
-        x_init: Optional[Tensor] = None,
-        **solver_kwargs
-    ) -> Tensor:
-        """
-        Sample from the learned distribution.
-        
-        Rectified flow often requires fewer steps than other methods
-        due to straighter transport paths.
-        
-        Args:
-            condition: Conditioning tensor
-            n_steps: Number of integration steps
-            solver: ODE solver name
-            x_init: Optional initial noise
-            **solver_kwargs: Additional solver arguments
-        
-        Returns:
-            Generated samples
-        """
-        
-        condition = condition.flatten(start_dim=1).to(self.model_device)
-        batch_size = condition.shape[0]
-        dim = condition.shape[1]
-        
-        # Sample from base distribution
-        if x_init is None:
-            x_0 = self.sample_base_distribution((batch_size, dim), self.model_device)
-        else:
-            x_0 = x_init.flatten(start_dim=1).to(self.model_device)
-        
-        # Create ODE solver
-        from flowpde.solvers import ODEFlowSolver
-        ode_solver = ODEFlowSolver(model=self.model, method=solver, **solver_kwargs)
-        
-        # Integrate from t=0 to t=1
-        samples = ode_solver.sample(
-            condition=condition,
-            x_init=x_0,
-            n_steps=n_steps
-        )
-        
-        return samples
-    
-    def log_prob(
-        self,
-        x: Tensor,
-        condition: Tensor,
-        **kwargs
-    ) -> Tensor:
-        """
-        Compute log probability.
-        
-        Note: Rectified flow doesn't directly compute log probabilities.
-        Use CNF for density estimation.
-        """
-        raise NotImplementedError(
-            "Rectified flow doesn't compute log probabilities. "
-            "Use ContinuousNormalizingFlow for density estimation."
-        )
-    
-    def forward_transform(
-        self,
-        x: Tensor,
-        condition: Optional[Tensor] = None,
-        **kwargs
-    ) -> Tensor:
-        """
-        Forward transformation: data -> latent (backward ODE).
-        
-        Note: This requires integrating the ODE backward in time.
-        """
-        raise NotImplementedError(
-            "Forward transform requires backward ODE integration. "
-            "Use CNF for bidirectional transformations."
-        )
-    
-    def inverse_transform(
-        self,
-        z: Tensor,
-        condition: Optional[Tensor] = None,
-        **kwargs
-    ) -> Tensor:
-        """
-        Inverse transformation: latent -> data (forward ODE).
-        
-        This is equivalent to the sample() method.
-        """
-        return self.sample(condition=condition, x_init=z, **kwargs)
-    
-    def get_config(self) -> Dict:
-        """Return configuration dictionary."""
-        return {
-            'flow_type': 'rectified_flow',
-            'reflow_iterations': self.reflow_iterations,
-            'current_iteration': self.current_iteration,
-            'time_sampling': self.time_sampling,
-            'model_type': self.model.__class__.__name__
-        }
-    
     def estimate_straightness(
         self,
         data_loader,
@@ -395,3 +261,18 @@ class RectifiedFlow(BaseFlow):
             'mean_path_length': torch.tensor(path_lengths).mean().item(),
             'straightness_score': 1.0 / (1.0 + torch.tensor(velocity_stds).mean().item())
         }
+    
+    def get_config(self) -> Dict:
+        """Return configuration dictionary."""
+        # Get base config from FlowMatching
+        config = super().get_config()
+        
+        # Add rectified flow specific parameters
+        config.update({
+            'flow_type': 'rectified_flow',
+            'reflow_iterations': self.reflow_iterations,
+            'current_iteration': self.current_iteration,
+            'time_sampling': self.time_sampling,
+        })
+        
+        return config

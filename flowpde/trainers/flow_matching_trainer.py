@@ -107,7 +107,7 @@ class FlowMatchingTrainer(Trainer):
         loss.backward()
         
         # Gradient clipping (optional, can be parameterized)
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+        #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         
         # Optimizer step
         self.optimizer.step()

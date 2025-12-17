@@ -20,7 +20,7 @@ class BaseSolver(ABC):
     Solvers can be:
     - Fixed-step (e.g., Euler, RK4)
     - Adaptive step-size (e.g., Dopri5, Dopri8)
-    - Stochastic (SDE solvers)
+    - Stochastic (SDE solvers) (NOT IMPLEMENTED YET)
     """
     
     def __init__(
