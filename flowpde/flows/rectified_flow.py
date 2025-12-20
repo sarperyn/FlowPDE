@@ -34,7 +34,7 @@ class RectifiedFlow(FlowMatching):
     - More stable training
     
     Args:
-        model: Neural network predicting velocity v(x, condition, t)
+        model: Neural network predicting velocity $v(x, \\text{condition}, t)$
         reflow_iterations: Number of reflow iterations for straightening
         time_sampling: Distribution for sampling time ('uniform' or 'logit_normal')
         

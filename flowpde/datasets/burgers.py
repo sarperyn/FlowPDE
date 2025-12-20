@@ -4,8 +4,8 @@ Burgers Dataset Classes
 
 PyTorch Dataset classes for Burgers equation problems.
 
-Forward Problem: u₀ → u(t)
-Inverse Problem: u(T) → u₀
+Forward Problem: $u_0 \to u(t)$
+Inverse Problem: $u(T) \to u_0$
 """
 
 import torch
@@ -16,9 +16,9 @@ from typing import Dict, Tuple, Optional
 
 class BurgersForwardDataset(Dataset):
     """
-    Dataset for Burgers forward problem: u₀ → u(t)
+    Dataset for Burgers forward problem: $u_0 \to u(t)$
     
-    Solves: ∂u/∂t + u·∂u/∂x = ν·∂²u/∂x²
+    Solves: $\frac{\partial u}{\partial t} + u \cdot \frac{\partial u}{\partial x} = \nu \cdot \frac{\partial^2 u}{\partial x^2}$
     
     Args:
         data_path: Path to .pt file containing dataset
@@ -27,8 +27,8 @@ class BurgersForwardDataset(Dataset):
         use_trajectory: If True, target is full trajectory; if False, only final state
         
     Returns:
-        If return_dict=True:  {'input': u₀, 'target': u(t) or trajectory}
-        If return_dict=False: (u₀, u(t) or trajectory)
+        If return_dict=True:  {'input': $u_0$, 'target': $u(t)$ or trajectory}
+        If return_dict=False: ($u_0$, $u(t)$ or trajectory)
     """
     
     def __init__(self, data_path: str, normalize: bool = True, 
@@ -92,7 +92,7 @@ class BurgersForwardDataset(Dataset):
 
 class BurgersInverseDataset(Dataset):
     """
-    Dataset for Burgers inverse problem: u(T) → u₀
+    Dataset for Burgers inverse problem: $u(T) \to u_0$
     
     Given observed final state, infer initial condition.
     
@@ -102,8 +102,8 @@ class BurgersInverseDataset(Dataset):
         return_dict: If True, return dict; if False, return tuple
         
     Returns:
-        If return_dict=True:  {'input': u(T), 'target': u₀}
-        If return_dict=False: (u(T), u₀)
+        If return_dict=True:  {'input': $u(T)$, 'target': $u_0$}
+        If return_dict=False: ($u(T)$, $u_0$)
     """
     
     def __init__(self, data_path: str, normalize: bool = True, return_dict: bool = True):

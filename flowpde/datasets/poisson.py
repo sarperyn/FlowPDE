@@ -4,8 +4,8 @@ Poisson Dataset Classes
 
 PyTorch Dataset classes for Poisson equation problems.
 
-Forward Problem: (source, coefficient) → solution
-Inverse Problem: observation → (source, coefficient)
+Forward Problem: $(\text{source}, \text{coefficient}) \to \text{solution}$
+Inverse Problem: $\text{observation} \to (\text{source}, \text{coefficient})$
 """
 
 import torch
@@ -16,9 +16,9 @@ from typing import Dict, Tuple, Optional
 
 class PoissonForwardDataset(Dataset):
     """
-    Dataset for Poisson forward problem: (f, a) → u
+    Dataset for Poisson forward problem: $(f, a) \to u$
     
-    Solves: -∇·(a∇u) = f with Dirichlet BC
+    Solves: $-\nabla \cdot (a \nabla u) = f$ with Dirichlet BC
     
     Args:
         data_path: Path to .pt file containing dataset
@@ -80,7 +80,7 @@ class PoissonForwardDataset(Dataset):
 
 class PoissonInverseDataset(Dataset):
     """
-    Dataset for Poisson inverse problem: u → (f, a)
+    Dataset for Poisson inverse problem: $u \to (f, a)$
     
     Given observed solution, infer source term and coefficient.
     
@@ -90,8 +90,8 @@ class PoissonInverseDataset(Dataset):
         return_dict: If True, return dict; if False, return tuple
         
     Returns:
-        If return_dict=True:  {'input': u_obs, 'target': (f, a)}
-        If return_dict=False: (u_obs, (f, a))
+        If return_dict=True:  {'input': $u_{obs}$, 'target': (f, a)}
+        If return_dict=False: ($u_{obs}$, (f, a))
     """
     
     def __init__(self, data_path: str, normalize: bool = True, return_dict: bool = True):

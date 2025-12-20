@@ -209,12 +209,12 @@ class UNet(nn.Module):
     def forward(self, x: Tensor, f: Tensor, t: Tensor) -> Tensor:
         """
         Args:
-            x: State x_t ∈ ℝ^d (B, C, H, W) 
+            x: State $x_t \in \mathbb{R}^d$ (B, C, H, W) 
             f: Condition (B, C', H, W) - PDE parameters (forcing, coefficients, etc.)
-            t: Time t ∈ [0,1] (B, 1)
+            t: Time $t \in [0,1]$ (B, 1)
             
         Returns:
-            v_θ(x_t, f, t): Velocity field ∈ ℝ^d
+            $v_\theta(x_t, f, t)$: Velocity field $\in \mathbb{R}^d$
         """
         # Reshape from flattened to spatial if needed
         if x.dim() == 2:

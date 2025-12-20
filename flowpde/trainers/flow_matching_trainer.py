@@ -24,9 +24,10 @@ class FlowMatchingTrainer(Trainer):
     - Custom conditioning for inverse problems
     
     The flow matching loss minimizes:
-        L = E[||v_θ(x_t, condition, t) - v_target(t)||^2]
     
-    where v_target is derived from the interpolation path.
+    $$\mathcal{L} = \mathbb{E}\left[\|v_\theta(x_t, \text{condition}, t) - v_{\text{target}}(t)\|^2\right]$$
+    
+    where $v_{\text{target}}$ is derived from the interpolation path.
     
     Args:
         flow: FlowMatching instance

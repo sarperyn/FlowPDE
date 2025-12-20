@@ -53,17 +53,17 @@ class BaseSolver(ABC):
         **kwargs
     ) -> Union[Tensor, Tuple[Tensor, Dict[str, Any]]]:
         """
-        Solve the differential equation dy/dt = func(t, y).
+        Solve the differential equation $dy/dt = f(t, y)$.
         
         Args:
-            func: Function computing dy/dt given (t, y)
+            func: Function computing $dy/dt$ given $(t, y)$
                   Signature: func(t: Tensor, y: Tensor) -> Tensor
             y0: Initial state (batch_size, dim)
-            t_span: Time interval (t_start, t_end)
+            t_span: Time interval $(t_{\text{start}}, t_{\text{end}})$
             **kwargs: Additional solving parameters
             
         Returns:
-            y_final: Final state at t_end (batch_size, dim)
+            $y_{\text{final}}$: Final state at $t_{\text{end}}$ (batch_size, dim)
             info (optional): Dictionary with solving statistics
         """
         raise NotImplementedError
@@ -79,7 +79,7 @@ class BaseSolver(ABC):
         Solve and return trajectory at specified time points.
         
         Args:
-            func: Function computing dy/dt
+            func: Function computing $dy/dt$
             y0: Initial state (batch_size, dim)
             t_eval: Time points for evaluation (n_steps,)
             **kwargs: Additional parameters

@@ -25,8 +25,8 @@ class VelocityField(nn.Module):
     """
     Wraps a flow matching model as an ODE velocity field.
     
-    The flow matching model predicts v(x_t, condition, t), which is the
-    time derivative dx/dt at time t. This wrapper makes it compatible
+    The flow matching model predicts $v(x_t, \text{condition}, t)$, which is the
+    time derivative $dx/dt$ at time $t$. This wrapper makes it compatible
     with torchdiffeq's interface.
     """
     
@@ -42,14 +42,14 @@ class VelocityField(nn.Module):
         
     def forward(self, t: Tensor, x: Tensor) -> Tensor:
         """
-        Compute velocity field at time t.
+        Compute velocity field at time $t$.
         
         Args:
             t: Current time (scalar tensor)
             x: Current state (batch_size, dim)
             
         Returns:
-            Velocity dx/dt at time t
+            Velocity $dx/dt$ at time $t$
         """
         # torchdiffeq passes scalar t, but model expects (batch_size, 1)
         batch_size = x.shape[0]
@@ -142,12 +142,12 @@ class ODEFlowSolver(ODESolver):
         **kwargs
     ) -> Tensor:
         """
-        Solve the ODE dy/dt = func(t, y).
+        Solve the ODE $dy/dt = f(t, y)$.
         
         Args:
-            func: Function computing dy/dt given (t, y)
+            func: Function computing $dy/dt$ given $(t, y)$
             y0: Initial state (batch_size, dim)
-            t_span: Time interval (t_start, t_end)
+            t_span: Time interval $(t_{\text{start}}, t_{\text{end}})$
             **kwargs: Additional solving parameters
             
         Returns:

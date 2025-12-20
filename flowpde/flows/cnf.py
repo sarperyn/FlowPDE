@@ -37,16 +37,16 @@ class CNFVectorField(nn.Module):
     
     def forward(self, t: Tensor, state: Tensor) -> Tensor:
         """
-        Compute augmented dynamics: [dx/dt, d(log p)/dt].
+        Compute augmented dynamics: $[dx/dt, d(\log p)/dt]$.
         
         Args:
             t: Current time (scalar)
-            state: Augmented state [x, log_px] with shapes:
+            state: Augmented state $[x, \log p_x]$ with shapes:
                    x: (batch_size, dim)
-                   log_px: (batch_size, 1)
+                   $\log p_x$: (batch_size, 1)
         
         Returns:
-            Augmented dynamics [dx/dt, d(log_px)/dt]
+            Augmented dynamics $[dx/dt, d(\log p_x)/dt]$
         """
         batch_size = state.shape[0]
         
@@ -71,7 +71,7 @@ class CNFVectorField(nn.Module):
             # Restore gradient state
             x = x.requires_grad_(x_requires_grad)
         
-        # Change of variables: d(log p)/dt = -trace(∂v/∂x)
+        # Change of variables: $d(\log p)/dt = -\text{tr}(\partial v/\partial x)$
         dlogpx_dt = -trace.view(batch_size, 1)
         
         # Combine into augmented dynamics
@@ -81,7 +81,7 @@ class CNFVectorField(nn.Module):
     
     def _compute_trace(self, v: Tensor, x: Tensor) -> Tensor:
         """
-        Compute trace of Jacobian ∂v/∂x.
+        Compute trace of Jacobian $\partial v/\partial x$.
         
         Args:
             v: Velocity field (batch_size, dim)
@@ -119,7 +119,7 @@ class CNFVectorField(nn.Module):
     
     def _hutchinson_trace(self, v: Tensor, x: Tensor) -> Tensor:
         """
-        Hutchinson trace estimator: E[ε^T (∂v/∂x) ε] where ε ~ N(0, I).
+        Hutchinson trace estimator: $\mathbb{E}[\varepsilon^T (\partial v/\partial x) \varepsilon]$ where $\varepsilon \sim \mathcal{N}(0, I)$.
         
         Unbiased estimator that only requires one Jacobian-vector product.
         """
@@ -156,12 +156,12 @@ class ContinuousNormalizingFlow(BaseFlow):
     CNF uses neural ODEs to learn invertible transformations and can compute
     exact log probabilities via the instantaneous change of variables formula:
     
-        log p(x_1) = log p(x_0) - ∫[0,1] trace(∂f/∂x) dt
+    $$\log p(x_1) = \log p(x_0) - \int_0^1 \text{tr}\left(\frac{\partial f}{\partial x}\right) dt$$
     
     This is more expensive than flow matching but provides density estimation.
     
     Args:
-        model: Neural network that computes velocity v(x, condition, t)
+        model: Neural network that computes velocity $v(x, \text{condition}, t)$
         base_distribution: Base distribution for sampling ('gaussian' or 'uniform')
         trace_estimator: Method for trace computation ('exact' or 'hutchinson')
         n_trace_samples: Number of samples for Hutchinson estimator
@@ -212,7 +212,8 @@ class ContinuousNormalizingFlow(BaseFlow):
         Compute CNF loss via maximum likelihood.
         
         The loss is the negative log likelihood:
-            L = -log p(x_1) = -log p(x_0) + ∫[0,1] trace(∂f/∂x) dt
+        
+        $$\mathcal{L} = -\log p(x_1) = -\log p(x_0) + \int_0^1 \text{tr}\left(\frac{\partial f}{\partial x}\right) dt$$
         
         Args:
             batch: Dictionary with 'u' (target data) and 'f' (condition)

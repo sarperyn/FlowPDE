@@ -27,7 +27,8 @@ class CNFTrainer(Trainer):
     - Flexibility in velocity field design
     
     The training loss is:
-        L = -E[log p(x)] = -E[log p(z) - ∫ trace(∂v/∂x) dt]
+    
+    $$\mathcal{L} = -\mathbb{E}[\log p(x)] = -\mathbb{E}\left[\log p(z) - \int \text{tr}\left(\frac{\partial v}{\partial x}\right) dt\right]$$
     
     where the trace is computed using exact computation or Hutchinson estimator.
     
@@ -85,7 +86,8 @@ class CNFTrainer(Trainer):
         For inverse problems: condition on observations, learn parameter posterior
         
         CNF integrates backward in time to compute exact log probabilities:
-            log p(x) = log p(z) - ∫[0,1] trace(∂v/∂x) dt
+        
+        $$\log p(x) = \log p(z) - \int_0^1 \text{tr}\left(\frac{\partial v}{\partial x}\right) dt$$
         
         Args:
             batch: Dictionary with 'u' and 'f' tensors

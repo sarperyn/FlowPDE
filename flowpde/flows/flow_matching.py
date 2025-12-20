@@ -79,7 +79,7 @@ class FlowMatching(BaseFlow):
         x_1: Tensor,
         t: Tensor
     ) -> Tuple[Tensor, Tensor]:
-        """Linear interpolation path: x_t = (1-t)x_0 + t*x_1."""
+        """Linear interpolation path: $x_t = (1-t)x_0 + t \cdot x_1$."""
         # t shape: (batch_size, 1)
         # Expand t to match x dimensions
         t_expanded = t.view(-1, *([1] * (x_0.dim() - 1)))
@@ -99,7 +99,8 @@ class FlowMatching(BaseFlow):
         Optimal transport conditional flow with Gaussian noise.
         
         Based on conditional optimal transport formulation:
-        x_t = t*x_1 + (1-t)*x_0 + sigma*sqrt(t(1-t))*noise
+        
+        $$x_t = t \cdot x_1 + (1-t) \cdot x_0 + \sigma \sqrt{t(1-t)} \cdot \text{noise}$$
         """
         t_expanded = t.view(-1, *([1] * (x_0.dim() - 1)))
         

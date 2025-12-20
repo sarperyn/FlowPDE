@@ -86,12 +86,12 @@ class MLP(nn.Module):
     def forward(self, x: Tensor, f: Tensor, t: Tensor) -> Tensor:
         """
         Args:
-            x: State x_t ∈ ℝ^d (B, d)
+            x: State $x_t \in \mathbb{R}^d$ (B, d)
             f: Condition (B, d) - PDE parameters
-            t: Time t ∈ [0,1] (B, 1)
+            t: Time $t \in [0,1]$ (B, 1)
         
         Returns:
-            v_θ(x_t, f, t): Velocity field ∈ ℝ^d
+            $v_\theta(x_t, f, t)$: Velocity field $\in \mathbb{R}^d$
         """
         # Save original shape
         sz = x.size()

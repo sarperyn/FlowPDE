@@ -22,9 +22,10 @@ class RectifiedFlowTrainer(Trainer):
     straightening procedure.
     
     The method minimizes:
-        L = E[||v_θ(x_t, condition, t) - (x_1 - x_0)||^2]
     
-    where x_t = (1-t)x_0 + t*x_1 and the target velocity is constant.
+    $$\mathcal{L} = \mathbb{E}\left[\|v_\theta(x_t, \text{condition}, t) - (x_1 - x_0)\|^2\right]$$
+    
+    where $x_t = (1-t)x_0 + t \cdot x_1$ and the target velocity is constant.
     
     Advantages over standard flow matching:
     - Faster sampling (requires fewer ODE steps)
@@ -86,7 +87,8 @@ class RectifiedFlowTrainer(Trainer):
         For inverse problems: condition on observations, learn straight paths to parameters
         
         The loss encourages constant velocity along straight interpolation paths:
-            L = E[||v_θ(x_t, cond, t) - (x_1 - x_0)||^2]
+        
+        $$\mathcal{L} = \mathbb{E}\left[\|v_\theta(x_t, \text{cond}, t) - (x_1 - x_0)\|^2\right]$$
         
         Args:
             batch: Dictionary with 'u' and 'f' tensors
