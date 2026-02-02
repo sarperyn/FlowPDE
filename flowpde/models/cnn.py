@@ -123,7 +123,7 @@ class ResidualBlock2D(nn.Module):
 class CNN1D(nn.Module):
     """Simple 1D CNN for flow matching on sequential/1D spatial data.
     
-    A straightforward convolutional architecture for 1D problems like Burgers equation.
+    A straightforward convolutional architecture for 1D problems like 1D Burgers equation.
     Uses residual blocks with time conditioning.
     
     Args:

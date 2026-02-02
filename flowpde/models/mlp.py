@@ -5,7 +5,6 @@ from torch import nn, Tensor
 from flowpde.utils.activation_functions import Swish
 
 
-# --- Fourier Time Embedding for MLP ---
 class FourierTimeEmbedding(nn.Module):
     """Sinusoidal time embedding for better temporal representation.
     
@@ -41,7 +40,6 @@ class MLP(nn.Module):
     Improvements over basic MLP:
     - Fourier time embeddings (sinusoidal features, better than raw time)
     - Residual connections in middle layers (better gradient flow)
-    - Configurable depth
     
     Args:
         input_dim: Dimension of input/output space

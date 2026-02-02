@@ -45,7 +45,7 @@ class Trainer(ABC):
         
         self.model        = model.to(device)
         self.optimizer    = optimizer
-        self.scheduler  = scheduler
+        self.scheduler    = scheduler
         self.device       = device
         self.best_loss    = float('inf')  # Track best loss for model saving
 
