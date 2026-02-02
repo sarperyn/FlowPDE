@@ -4,3 +4,6 @@ PyYAML==6.0.3
 scipy==1.16.2
 torch==2.9.0
 torchdiffeq>=0.2.4
+apebench>=0.1.0
+exponax>=0.1.0
+jax>=0.4.12
