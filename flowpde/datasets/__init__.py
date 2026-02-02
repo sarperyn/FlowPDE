@@ -1,56 +1,65 @@
 """
-Dataset modules for FlowPDE
-=============================
+Dataset Modules for FlowPDE
+============================
 
-PyTorch Dataset classes for forward and inverse PDE problems.
+Provides PyTorch Dataset classes for PDE problems using APEBench
+for procedural data generation.
 
-Available Datasets:
--------------------
+Main Components:
+----------------
+- APEBenchProvider: Factory for generating PDE datasets
+- FlowDatasetWrapper: Converts datasets to flow training format
 
-APEBench Integration (Recommended):
-    - APEBenchProvider: Factory for generating datasets from APEBench
-    - BurgersScenario: 1D/2D Burgers equation via spectral solvers
-    - PoissonScenario: 1D/2D/3D Poisson equation via spectral solvers
+Supported PDEs:
+---------------
+- Burgers equation (1D): Time-dependent viscous flow
+- Poisson equation (2D): Elliptic source-to-solution
 
-Legacy Datasets:
-    - PoissonForwardDataset: (source, coefficient) → solution
-    - PoissonInverseDataset: observation → (source, coefficient)
-    - BurgersForwardDataset: initial_condition → solution_trajectory
-    - BurgersInverseDataset: final_observation → initial_condition
-
-Wrappers:
-    - FlowDatasetWrapper: Convert {'input', 'target'} → {'f', 'u'} for flows
-
-APEBench Quick Start:
----------------------
-    from flowpde.datasets.apebench import APEBenchProvider
+Quick Start:
+------------
+    from flowpde.datasets import APEBenchProvider, FlowDatasetWrapper
+    from torch.utils.data import DataLoader
     
-    # Create Burgers 1D dataset with caching
+    # 1. Generate Burgers 1D dataset
     dataset = APEBenchProvider.create(
         pde='burgers_1d',
-        problem='forward',
+        problem='forward',  # IC → final state
         num_points=160,
         viscosity=0.0003,
         num_train_samples=500,
-        cache=True,  # Recommended
+        cache=True,  # Recommended: cache to disk
     )
     
-    # Use with DataLoader
-    from torch.utils.data import DataLoader
-    loader = DataLoader(dataset, batch_size=32, shuffle=True)
+    # 2. Wrap for flow training (converts to {'f', 'u'} format)
+    flow_dataset = FlowDatasetWrapper(dataset)
+    
+    # 3. Use with DataLoader
+    loader = DataLoader(flow_dataset, batch_size=32, shuffle=True)
+    
+    for batch in loader:
+        condition = batch['f']  # Conditioning input
+        target = batch['u']     # Target to learn
 
-Legacy Usage:
+Poisson Example:
+----------------
+    # Generate Poisson 2D dataset (source → solution)
+    dataset = APEBenchProvider.create(
+        pde='poisson_2d',
+        problem='forward',
+        num_points=64,
+        num_train_samples=1000,
+        cache=True,
+    )
+
+Dependencies:
 -------------
-    from flowpde.datasets import PoissonForwardDataset
-    dataset = PoissonForwardDataset('data/datasets/poisson/forward/train.pt')
+Requires APEBench: pip install apebench exponax jax
 """
 
-# Legacy datasets (for backward compatibility)
-from .poisson import PoissonForwardDataset, PoissonInverseDataset
-from .burgers import BurgersForwardDataset, BurgersInverseDataset
+# Wrappers (always available)
 from .wrappers import FlowDatasetWrapper, InverseFlowDatasetWrapper
 
-# APEBench integration (new, recommended)
+# APEBench integration
 try:
     from .apebench import (
         APEBenchProvider,
@@ -59,9 +68,9 @@ try:
         CacheManager,
     )
     _APEBENCH_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     _APEBENCH_AVAILABLE = False
-    # Create placeholder for documentation
+    _APEBENCH_ERROR = str(e)
     APEBenchProvider = None
     BurgersScenario = None
     PoissonScenario = None
@@ -70,22 +79,19 @@ except ImportError:
 
 def check_apebench_available() -> bool:
     """Check if APEBench integration is available."""
+    if not _APEBENCH_AVAILABLE:
+        print(f"APEBench not available: {_APEBENCH_ERROR}")
+        print("Install with: pip install apebench exponax jax")
     return _APEBENCH_AVAILABLE
 
 
 __all__ = [
-    # APEBench integration (new)
+    # APEBench (primary)
     'APEBenchProvider',
     'BurgersScenario',
     'PoissonScenario',
     'CacheManager',
     'check_apebench_available',
-    
-    # Legacy datasets
-    'PoissonForwardDataset',
-    'PoissonInverseDataset',
-    'BurgersForwardDataset',
-    'BurgersInverseDataset',
     
     # Wrappers
     'FlowDatasetWrapper',

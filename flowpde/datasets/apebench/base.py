@@ -364,3 +364,15 @@ class APEBenchDataset(Dataset):
     def get_config(self) -> Dict[str, Any]:
         """Get generation configuration."""
         return self.config
+    
+    def get_raw_data(self) -> Dict[str, Any]:
+        """
+        Get the raw underlying data dictionary.
+        
+        Returns all generated data including trajectories, time points,
+        physics parameters, and metadata.
+        
+        Returns:
+            Dictionary with all tensor data and metadata
+        """
+        return self.data
