@@ -8,6 +8,7 @@
 /results
 /configs
 /tests
+/.cache
 
 .DS_Store
 *.pyc
