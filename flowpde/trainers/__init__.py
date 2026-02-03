@@ -1,26 +1,50 @@
 """
-Trainers for Normalizing Flow Algorithms
+Trainers for Normalizing Flow Algorithms.
 
 FlowPDE provides trainers for different flow-based training schemas:
 
-- FlowMatchingTrainer: For flow matching with linear or OT paths
-- CNFTrainer: For continuous normalizing flows with exact log probabilities  
-- RectifiedFlowTrainer: For rectified flows with straight transport paths
+Main Classes:
+- FlowTrainer: Unified trainer for all flow matching variants
+  - Works with FlowMatching (standard, rectified, OT-CFM)
+  - Includes reflow() for iterative path straightening
+  - Supports gradient clipping, mixed precision
+
+- CNFTrainer: For continuous normalizing flows with exact log probabilities
 
 All trainers are dataset-agnostic and work with both forward and inverse problems.
 The choice of trainer depends on the flow algorithm, not the PDE or problem type.
+
+Example:
+    ```python
+    from flowpde.flows import FlowMatching
+    from flowpde.trainers import FlowTrainer
+    
+    # Create flow
+    flow = FlowMatching(model, path='linear', time_sampler='uniform')
+    
+    # Create trainer
+    trainer = FlowTrainer(flow, optimizer, scheduler, device='cuda')
+    
+    # Train
+    trainer.train(data_loader, epochs=100, save_dir='results/')
+    
+    # Optional: reflow for straighter paths
+    trainer.reflow(data_loader, num_iterations=2)
+    ```
 """
 
-from .trainer import *
-from ..utils.generic_training import *
-from .flow_matching_trainer import FlowMatchingTrainer
+from .trainer import Trainer
+from .flow_trainer import FlowTrainer
 from .cnf_trainer import CNFTrainer
-from .rectified_flow_trainer import RectifiedFlowTrainer
+from ..utils.generic_training import *
 
 __all__ = [
+    # Base class
     'Trainer',
-    'FlowMatchingTrainer',
+    
+    # Unified trainer
+    'FlowTrainer',
+    
+    # CNF trainer
     'CNFTrainer',
-    'RectifiedFlowTrainer'
 ]
-
