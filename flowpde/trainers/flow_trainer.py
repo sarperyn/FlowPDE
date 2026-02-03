@@ -198,7 +198,7 @@ class FlowTrainer(Trainer):
             
             # Optionally reset model weights
             # In practice, we usually continue training the same model
-            # but you could also reinitialize here
+            # but one could also reinitialize here
             
             # Reset optimizer state
             self._reset_optimizer_state()
@@ -235,12 +235,12 @@ class FlowTrainer(Trainer):
         """
         Generate reflowed data pairs.
         
-        For each (f, u) pair in the original data:
-        1. Sample z ~ N(0, I)
-        2. Run ODE: z → x_1' = model.sample(condition=f, x_init=z)
-        3. Store (z, x_1') as new training pair
+        For each $(f, u)$ pair in the original data:
+        1. Sample $z ~ N(0, I)$
+        2. Run ODE: $z \to x_1' = \text{model.sample}(\text{condition}=f, x_{\text{init}}=z)$
+        3. Store $(z, x_1')$ as new training pair
         
-        This creates pairs where the path z → x_1' is determined by
+        This creates pairs where the path $z \to x_1'$ is determined by
         the current model, which should be straighter than the original.
         """
         reflowed_data = []

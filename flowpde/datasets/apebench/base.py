@@ -215,7 +215,7 @@ class BaseAPEBenchScenario(ABC):
                     print(f"⚠ Cache load failed, regenerating: {e}")
         
         # Generate using APEBench
-        print(f"⏳ Generating {mode} data for {pde_name}...")
+        print(f"Generating {mode} data for {pde_name}...")
         
         scenario = self.apebench_scenario
         
@@ -236,9 +236,9 @@ class BaseAPEBenchScenario(ABC):
         # Cache if requested
         if cache:
             self.cache.save(pde_name, cache_params, data, split=mode)
-            print(f"✓ Cached {mode} data to: {self.cache._get_cache_path(pde_name, cache_params)}")
+            print(f"Cached {mode} data to: {self.cache._get_cache_path(pde_name, cache_params)}")
         
-        print(f"✓ Generated {mode} data: {self._summarize_data(data)}")
+        print(f"Generated {mode} data: {self._summarize_data(data)}")
         
         return data
     
