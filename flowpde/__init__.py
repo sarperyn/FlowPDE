@@ -21,21 +21,19 @@ Quick Start:
     >>> samples = flow.sample(condition=f, n_steps=50)
 
 Architecture:
-    - flowpde.flows: Flow algorithms (FlowMatching, CNF, RectifiedFlow)
-    - flowpde.models: Neural networks (MLP, UNet)
+    - flowpde.flows: Flow algorithms (FlowMatching, CNF)
+    - flowpde.models: Neural networks (MLP, UNet, ConvNet, ResNet)
     - flowpde.solvers: ODE/SDE solvers
     - flowpde.inverse: Posterior sampling, uncertainty quantification
     - flowpde.datasets: Dataset loaders
 """
 
 # Direct imports - Natural API (recommended)
-from flowpde.flows import FlowMatching, ContinuousNormalizingFlow, RectifiedFlow
-from flowpde.models import MLP, UNet
+from flowpde.flows import FlowMatching, ContinuousNormalizingFlow, create_flow_matching
+from flowpde.models import MLP, UNet, ConvNet, ResNet
 from flowpde.solvers import ODEFlowSolver
-from flowpde.trainers import FlowMatchingTrainer, CNFTrainer, RectifiedFlowTrainer
+from flowpde.trainers import FlowTrainer, CNFTrainer
 from flowpde.datasets import (
-    PoissonForwardDataset, PoissonInverseDataset,
-    BurgersForwardDataset, BurgersInverseDataset,
     FlowDatasetWrapper, InverseFlowDatasetWrapper
 )
 
@@ -45,25 +43,22 @@ __all__ = [
     # Flows (direct import - API)
     'FlowMatching',
     'ContinuousNormalizingFlow',
-    'RectifiedFlow',
+    'create_flow_matching',
     
     # Models (direct import - API)
     'MLP',
     'UNet',
+    'ConvNet',
+    'ResNet',
     
     # Solvers
     'ODEFlowSolver',
     
     # Trainers
-    'FlowMatchingTrainer',
+    'FlowTrainer',
     'CNFTrainer',
-    'RectifiedFlowTrainer',
     
     # Datasets
-    'PoissonForwardDataset',
-    'PoissonInverseDataset',
-    'BurgersForwardDataset',
-    'BurgersInverseDataset',
     'FlowDatasetWrapper',
     'InverseFlowDatasetWrapper',
 ]
