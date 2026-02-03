@@ -8,6 +8,7 @@
 /results
 /configs
 /tests
+*/.cache
 /.cache
 
 .DS_Store
