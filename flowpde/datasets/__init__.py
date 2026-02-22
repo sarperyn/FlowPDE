@@ -2,98 +2,89 @@
 Dataset Modules for FlowPDE
 ============================
 
-Provides PyTorch Dataset classes for PDE problems using APEBench
-for procedural data generation.
+Provides PyTorch Dataset classes for PDE problems using Exponax
+for direct spectral PDE data generation.
 
 Main Components:
 ----------------
-- APEBenchProvider: Factory for generating PDE datasets
+- PoissonGenerator: Generate Poisson equation datasets
+- BurgersGenerator: Generate Burgers equation datasets
+- PDEDataset: PyTorch Dataset for generated data
 - FlowDatasetWrapper: Converts datasets to flow training format
 
 Supported PDEs:
 ---------------
-- Burgers equation (1D): Time-dependent viscous flow
-- Poisson equation (2D): Elliptic source-to-solution
+- Poisson equation (1D/2D/3D): Elliptic source-to-solution
+- Burgers equation (1D/2D): Time-dependent viscous flow
 
 Quick Start:
 ------------
-    from flowpde.datasets import APEBenchProvider, FlowDatasetWrapper
+    from flowpde.datasets import PoissonGenerator, FlowDatasetWrapper
     from torch.utils.data import DataLoader
-    
-    # 1. Generate Burgers 1D dataset
-    dataset = APEBenchProvider.create(
-        pde='burgers_1d',
-        problem='forward',  # IC → final state
-        num_points=160,
-        viscosity=0.0003,
-        num_train_samples=500,
-        cache=True,  # Recommended: cache to disk
-    )
-    
+
+    # 1. Generate Poisson 2D dataset (source → solution)
+    gen = PoissonGenerator(num_points=64, domain_extent=10.0)
+    dataset = gen.generate(num_samples=1000, seed=42)
+
     # 2. Wrap for flow training (converts to {'f', 'u'} format)
     flow_dataset = FlowDatasetWrapper(dataset)
-    
+
     # 3. Use with DataLoader
     loader = DataLoader(flow_dataset, batch_size=32, shuffle=True)
-    
+
     for batch in loader:
         condition = batch['f']  # Conditioning input
         target = batch['u']     # Target to learn
 
-Poisson Example:
+Burgers Example:
 ----------------
-    # Generate Poisson 2D dataset (source → solution)
-    dataset = APEBenchProvider.create(
-        pde='poisson_2d',
-        problem='forward',
-        num_points=64,
-        num_train_samples=1000,
-        cache=True,
+    from flowpde.datasets import BurgersGenerator
+
+    gen = BurgersGenerator(
+        num_spatial_dims=1,
+        num_points=160,
+        diffusivity=0.0003,
+        dt=0.001,
+        num_steps=50,
     )
+    dataset = gen.generate(num_samples=500, seed=0)
 
 Dependencies:
 -------------
-Requires APEBench: pip install apebench exponax jax
+Requires Exponax: pip install exponax jax
 """
 
 # Wrappers (always available)
 from .wrappers import FlowDatasetWrapper, InverseFlowDatasetWrapper
 
-# APEBench integration
-try:
-    from .apebench import (
-        APEBenchProvider,
-        BurgersScenario,
-        PoissonScenario,
-        CacheManager,
-    )
-    _APEBENCH_AVAILABLE = True
-except ImportError as e:
-    _APEBENCH_AVAILABLE = False
-    _APEBENCH_ERROR = str(e)
-    APEBenchProvider = None
-    BurgersScenario = None
-    PoissonScenario = None
-    CacheManager = None
-
-
-def check_apebench_available() -> bool:
-    """Check if APEBench integration is available."""
-    if not _APEBENCH_AVAILABLE:
-        print(f"APEBench not available: {_APEBENCH_ERROR}")
-        print("Install with: pip install apebench exponax jax")
-    return _APEBENCH_AVAILABLE
-
+# Exponax integration
+from .exponax import (
+    PDEDataset,
+    GenerationConfig,
+    PoissonGenerator,
+    PoissonConfig,
+    BurgersGenerator,
+    BurgersConfig,
+    jax_to_torch,
+    torch_to_jax,
+)
 
 __all__ = [
-    # APEBench (primary)
-    'APEBenchProvider',
-    'BurgersScenario',
-    'PoissonScenario',
-    'CacheManager',
-    'check_apebench_available',
-    
+    # Generators
+    'PoissonGenerator',
+    'PoissonConfig',
+    'BurgersGenerator',
+    'BurgersConfig',
+
+    # Dataset
+    'PDEDataset',
+    'GenerationConfig',
+
     # Wrappers
     'FlowDatasetWrapper',
     'InverseFlowDatasetWrapper',
+
+    # Utilities
+    'jax_to_torch',
+    'torch_to_jax',
 ]
