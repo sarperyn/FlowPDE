@@ -4,7 +4,7 @@ Poisson 2D Flow Matching Training Pipeline
 ==========================================
 
 End-to-end script that:
-1. Creates a Poisson 2D dataset (64x64 grid) using APEBenchProvider
+1. Creates a Poisson 2D dataset (64x64 grid) using Exponax
 2. Trains a UNet model using Flow Matching
 
 Usage:
@@ -26,31 +26,11 @@ from torch.utils.data import DataLoader
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from flowpde.datasets.apebench import APEBenchProvider
+from flowpde.datasets.exponax import PoissonGenerator
+from flowpde.datasets.wrappers import FlowDatasetWrapper
 from flowpde.models.unet import UNet
 from flowpde.flows.flow_matching import FlowMatching
 from flowpde.trainers.flow_trainer import FlowTrainer
-
-
-class FlowMatchingDatasetWrapper(torch.utils.data.Dataset):
-    """
-    Wrapper to convert APEBenchDataset output format to FlowMatching format.
-    
-    APEBenchDataset returns: {'input': source, 'target': solution}
-    FlowMatching expects: {'f': condition/source, 'u': target/solution}
-    """
-    def __init__(self, dataset):
-        self.dataset = dataset
-    
-    def __len__(self):
-        return len(self.dataset)
-    
-    def __getitem__(self, idx):
-        sample = self.dataset[idx]
-        return {
-            'f': sample['input'],   # condition (source term)
-            'u': sample['target'],  # target (solution)
-        }
 
 
 def parse_args():
@@ -61,7 +41,6 @@ def parse_args():
     parser.add_argument("--domain_extent", type=float, default=10.0, help="Physical domain size")
     parser.add_argument("--num_train_samples", type=int, default=1000, help="Number of training samples")
     parser.add_argument("--num_test_samples", type=int, default=200, help="Number of test samples")
-    parser.add_argument("--cache", action="store_true", default=True, help="Cache generated data")
     
     # Model parameters
     parser.add_argument("--base_channels", type=int, default=64, help="Base channels for UNet")
@@ -108,24 +87,29 @@ def main():
 
     # Create Poisson 2D Dataset
     print("\n" + "-" * 60)
-    print("Creating Poisson 2D Dataset")
+    print("Creating Poisson 2D Dataset (Exponax)")
     print("-" * 60)
     
     print(f"  Grid resolution: {args.num_points}x{args.num_points}")
     print(f"  Domain extent: {args.domain_extent}")
     print(f"  Train samples: {args.num_train_samples}")
     print(f"  Test samples: {args.num_test_samples}")
-    print(f"  Cache enabled: {args.cache}")
     
-    train_dataset, test_dataset = APEBenchProvider.create_train_test(
-        pde='poisson_2d',
-        problem='forward',  # source (f) -> solution (u)
-        cache=args.cache,
+    generator = PoissonGenerator(
+        num_spatial_dims=2,
         num_points=args.num_points,
         domain_extent=args.domain_extent,
-        num_train_samples=args.num_train_samples,
-        num_test_samples=args.num_test_samples,
-        torch_device=args.device,
+    )
+    
+    train_dataset = generator.generate(
+        num_samples=args.num_train_samples,
+        seed=args.seed,
+        problem='forward',
+    )
+    test_dataset = generator.generate(
+        num_samples=args.num_test_samples,
+        seed=args.seed + 773,
+        problem='forward',
     )
     
     print(f"\n  Train dataset size: {len(train_dataset)}")
@@ -137,9 +121,9 @@ def main():
     print(f"    Input (source) shape: {sample['input'].shape}")
     print(f"    Target (solution) shape: {sample['target'].shape}")
     
-    # Wrap datasets to convert keys for FlowMatching # will fix later
-    train_dataset_wrapped = FlowMatchingDatasetWrapper(train_dataset)
-    test_dataset_wrapped = FlowMatchingDatasetWrapper(test_dataset)
+    # Wrap datasets for FlowMatching ({'input','target'} → {'f','u'})
+    train_dataset_wrapped = FlowDatasetWrapper(train_dataset)
+    test_dataset_wrapped = FlowDatasetWrapper(test_dataset)
     
     # Create data loaders
     train_loader = DataLoader(

@@ -1,0 +1,129 @@
+"""
+Base Dataset for Exponax-Generated PDE Data
+============================================
+
+Provides a PyTorch Dataset that wraps data generated directly from
+Exponax solvers and IC generators.
+"""
+
+import torch
+from torch.utils.data import Dataset
+from typing import Dict, Any, Optional, Literal, Union, Tuple
+from dataclasses import dataclass, asdict
+
+from .converters import compute_normalization_stats
+
+
+@dataclass
+class GenerationConfig:
+    """
+    Configuration for PDE data generation via Exponax.
+
+    Attributes:
+        num_spatial_dims: Number of spatial dimensions (1, 2, or 3)
+        num_points: Number of grid points per spatial dimension
+        domain_extent: Physical size of the periodic domain
+        num_samples: Number of samples to generate
+        seed: Random seed for reproducibility
+        torch_device: Target PyTorch device for converted tensors
+    """
+    num_spatial_dims: int = 2
+    num_points: int = 64
+    domain_extent: float = 10.0
+    num_samples: int = 1000
+    seed: int = 42
+    torch_device: str = 'cpu'
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+class PDEDataset(Dataset):
+    """
+    PyTorch Dataset wrapping Exponax-generated PDE data.
+
+    Returns samples as {'input': ..., 'target': ...} where the
+    semantics of *input* and *target* depend on the PDE type and the
+    chosen problem direction:
+
+    * **Poisson** (static): input=source, target=solution (forward)
+      or input=solution, target=source (inverse).
+    * **Burgers** (time-dependent): input=initial condition,
+      target=final state (forward) or vice-versa (inverse).
+
+    The dataset also stores normalization statistics and generation
+    config for reference.
+    """
+
+    def __init__(
+        self,
+        data: Dict[str, torch.Tensor],
+        problem: Literal['forward', 'inverse'] = 'forward',
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Args:
+            data: Dictionary with at least two tensor entries whose
+                  keys identify the PDE fields (e.g. 'source' / 'solution'
+                  for Poisson, 'initial' / 'final' for Burgers).
+            problem: 'forward' maps natural data -> solution;
+                     'inverse' reverses the mapping.
+            metadata: Optional dict with 'stats', 'config', etc.
+        """
+        self.data = data
+        self.problem = problem
+        self.metadata = metadata or {}
+        self.stats = self.metadata.get('stats', {})
+        self.config = self.metadata.get('config', {})
+
+        self._setup_keys()
+
+
+    def _setup_keys(self):
+        """Determine input / target keys from the available data."""
+        #Static PDEs (Poisson)
+        if 'source' in self.data and 'solution' in self.data:
+            if self.problem == 'forward':
+                self.input_key = 'source'
+                self.target_key = 'solution'
+            else:
+                self.input_key = 'solution'
+                self.target_key = 'source'
+
+        #Time-dependent PDEs (Burgers)
+        elif 'initial' in self.data and 'final' in self.data:
+            if self.problem == 'forward':
+                self.input_key = 'initial'
+                self.target_key = 'final'
+            else:
+                self.input_key = 'final'
+                self.target_key = 'initial'
+
+        else:
+            raise ValueError(
+                f"Unrecognized data format. Keys: {list(self.data.keys())}. "
+                "Expected ('source', 'solution') or ('initial', 'final')."
+            )
+
+    #Dataset interface
+    def __len__(self) -> int:
+        return len(self.data[self.input_key])
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        return {
+            'input': self.data[self.input_key][idx],
+            'target': self.data[self.target_key][idx],
+        }
+
+    # Getters for metadata
+    def get_stats(self) -> Dict[str, Dict[str, float]]:
+        """Get normalization statistics for all fields."""
+        return self.stats
+
+    def get_config(self) -> Dict[str, Any]:
+        """Get generation configuration."""
+        return self.config
+
+    def get_raw_data(self) -> Dict[str, Any]:
+        """Get the raw underlying data dictionary."""
+        return self.data
