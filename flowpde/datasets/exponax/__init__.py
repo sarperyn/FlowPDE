@@ -1,9 +1,5 @@
 """
 Exponax Integration Module for FlowPDE
-========================================
-
-Generates PDE datasets directly using Exponax solvers and IC generators,
-bypassing the APEBench scenario layer.
 
 Main Components:
     - ``PoissonGenerator``: source → solution pairs for the Poisson equation

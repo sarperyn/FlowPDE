@@ -124,6 +124,6 @@ nav:
       - CNF Trainer: api/trainers/cnf_trainer.md
     - Datasets:
       - Wrappers: api/datasets/wrappers.md
-      - APEBench Provider: api/datasets/apebench.md
+      - Exponax Integration: api/datasets/exponax.md
   - Examples:
     - Notebooks: examples/notebooks.md
