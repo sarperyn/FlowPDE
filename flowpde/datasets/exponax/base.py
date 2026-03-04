@@ -26,13 +26,27 @@ class GenerationConfig:
         num_samples: Number of samples to generate
         seed: Random seed for reproducibility
         torch_device: Target PyTorch device for converted tensors
+        obs_noise_std: Standard deviation of additive Gaussian noise applied
+            to the observation field when generating inverse-problem datasets
+            (problem='inverse').  Set to 0.0 (default) to disable.  For
+            Poisson this corrupts the solution; for Burgers, the final state.
+        obs_mask_fraction: Fraction of spatial grid points that are *observed*
+            in inverse-problem datasets.  Each sample independently draws a
+            random Bernoulli mask with this probability; unobserved locations
+            are zeroed out in the observation field.  The binary mask
+            (1 = observed, 0 = unobserved) is stored as ``'obs_mask'`` in the
+            dataset and returned by ``__getitem__``.  1.0 (default) = full
+            observations; 0.1 = only 10 % of points visible.
+            Has no effect when ``problem='forward'``.
     """
     num_spatial_dims: int = 2
     num_points: int = 64
     domain_extent: float = 10.0
-    num_samples: int = 1000
+    num_samples: int = 10000
     seed: int = 42
     torch_device: str = 'cpu'
+    obs_noise_std: float = 0.0
+    obs_mask_fraction: float = 1.0
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -50,6 +64,10 @@ class PDEDataset(Dataset):
       or input=solution, target=source (inverse).
     * **Burgers** (time-dependent): input=initial condition,
       target=final state (forward) or vice-versa (inverse).
+
+    When partial observations are enabled (``obs_mask_fraction < 1.0``),
+    ``__getitem__`` additionally returns ``'obs_mask'``: a float tensor of
+    shape ``(1, *spatial)`` with 1 at observed locations and 0 elsewhere.
 
     The dataset also stores normalization statistics and generation
     config for reference.
@@ -110,10 +128,13 @@ class PDEDataset(Dataset):
         return len(self.data[self.input_key])
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        return {
+        sample = {
             'input': self.data[self.input_key][idx],
             'target': self.data[self.target_key][idx],
         }
+        if 'obs_mask' in self.data:
+            sample['obs_mask'] = self.data['obs_mask'][idx]
+        return sample
 
     # Getters for metadata
     def get_stats(self) -> Dict[str, Dict[str, float]]:
