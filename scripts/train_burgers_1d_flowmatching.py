@@ -1,0 +1,148 @@
+"""
+Burgers 1D Flow Matching Training
+"""
+
+import sys
+import argparse
+from pathlib import Path
+
+import torch
+from torch.utils.data import DataLoader
+
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from flowpde.datasets.exponax import BurgersGenerator, BurgersConfig
+from flowpde.models.resnet import ResNet
+from flowpde.flows.flow_matching import FlowMatching
+from flowpde.trainers.flow_trainer import FlowTrainer
+
+
+class FlowMatchingDatasetWrapper(torch.utils.data.Dataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+    
+    def __len__(self):
+        return len(self.dataset)
+    
+    def __getitem__(self, idx):
+        sample = self.dataset[idx]
+        return {'f': sample['input'], 'u': sample['target']}
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train Flow Matching on Burgers 1D")
+    
+    # Dataset
+    parser.add_argument("--num_points", type=int, default=160)
+    parser.add_argument("--diffusivity_min", type=float, default=1e-4)
+    parser.add_argument("--diffusivity_max", type=float, default=1e-2)
+    parser.add_argument("--num_steps", type=int, default=50)
+    parser.add_argument("--dt", type=float, default=0.001)
+    parser.add_argument("--domain_extent", type=float, default=1.0)
+    parser.add_argument("--num_train_samples", type=int, default=1000)
+    
+    # Model
+    parser.add_argument("--base_channels", type=int, default=64)
+    
+    # Training
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--gradient_clip", type=float, default=1.0)
+    
+    # Flow Matching
+    parser.add_argument("--path", type=str, default="linear")
+    parser.add_argument("--time_sampler", type=str, default="uniform")
+    
+    # Output
+    parser.add_argument("--output_dir", type=str, default="results/burgers_1d_flowmatching")
+    parser.add_argument("--print_interval", type=int, default=10)
+    parser.add_argument("--save_interval", type=int, default=50)
+    
+    # Device
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--seed", type=int, default=42)
+    
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    
+    torch.manual_seed(args.seed)
+    print(f"Burgers 1D Flow Matching | Device: {args.device}")
+    
+    # Dataset
+    print("Generating dataset with Exponax...")
+    generator = BurgersGenerator(
+        num_spatial_dims=1,
+        num_points=args.num_points,
+        domain_extent=args.domain_extent,
+        dt=args.dt,
+        num_steps=args.num_steps,
+        diffusivity_min=args.diffusivity_min,
+        diffusivity_max=args.diffusivity_max,
+        torch_device=args.device,
+    )
+    train_dataset = generator.generate(num_samples=args.num_train_samples, seed=args.seed, problem='forward')
+    print(f"Train samples: {len(train_dataset)}")
+    
+    train_loader = DataLoader(
+        FlowMatchingDatasetWrapper(train_dataset), 
+        batch_size=args.batch_size, 
+        shuffle=True,
+        pin_memory=False,
+    )
+    
+    # Model
+    print("Creating model...")
+    model = ResNet(
+        spatial_dim=1,
+        spatial_size=args.num_points,
+        base_channels=args.base_channels,
+        blocks_per_stage=[2, 2, 2],
+        solution_channels=1,
+        condition_channels=1,
+        downsample=False,
+        return_spatial=False,
+    )
+    print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
+    
+    # Flow Matching
+    flow = FlowMatching(model=model, path=args.path, time_sampler=args.time_sampler)
+    
+    # Optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    
+    # Trainer
+    trainer = FlowTrainer(
+        flow=flow,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        device=args.device,
+        gradient_clip=args.gradient_clip if args.gradient_clip > 0 else None,
+    )
+    
+    # Output dir
+    output_dir = Path(project_root) / args.output_dir
+    checkpoint_dir = output_dir / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Train
+    print(f"Training for {args.epochs} epochs...")
+    trainer.train(
+        data_loader=train_loader,
+        epochs=args.epochs,
+        print_stats_interval=args.print_interval,
+        save_interval=args.save_interval,
+        save_dir=str(checkpoint_dir),
+    )
+    
+    print(f"Done. Best loss: {trainer.best_loss:.6f}")
+    print(f"Checkpoint: {checkpoint_dir / 'best_model.pt'}")
+
+
+if __name__ == "__main__":
+    main()
