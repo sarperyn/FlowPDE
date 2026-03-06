@@ -69,7 +69,10 @@ class BurgersConfig(GenerationConfig):
         amplitude_min: Lower bound of the uniform per-sample amplitude
             multiplier applied after IC generation.
         amplitude_max: Upper bound of the uniform per-sample amplitude
-            multiplier.
+            multiplier. Must be kept below the spectral CFL stability limit:
+            ``amplitude_max < 0.8 * domain_extent / (dt * num_points * π)``.
+            With the default settings (dt=0.001, num_points=160,
+            domain_extent=1.0) the safe upper bound is ~3.0.
         gaussian_bump_prob: Probability that each IC is drawn from a
             Gaussian-bump generator instead of the truncated Fourier series.
             0.0 = always Fourier; 1.0 = always bumps; 0.5 (default) = equal
@@ -91,7 +94,7 @@ class BurgersConfig(GenerationConfig):
     ic_cutoff_max: int = 20
     ic_max_one: bool = False
     amplitude_min: float = 0.1
-    amplitude_max: float = 5.0
+    amplitude_max: float = 3.0
     gaussian_bump_prob: float = 0.5
     gaussian_bump_max_bumps: int = 5
     store_trajectory: bool = False
@@ -193,6 +196,15 @@ class BurgersGenerator:
             mix_mask = jax.random.uniform(mix_key, (n,)) < cfg.gaussian_bump_prob
             mask = mix_mask.reshape((n,) + (1,) * (ics.ndim - 1))
             ics = jnp.where(mask, ics_gaussian, ics)
+
+        # Normalize every IC to max|field| = 1 so that amplitude_min/amplitude_max
+        # is the sole control over output amplitude. Without this, Fourier ICs
+        # (generated with max_one=False) can have large uncontrolled amplitudes
+        # that cause the PDE solver to produce NaN.
+        def _normalize(field):
+            max_abs = jnp.abs(field).max()
+            return field / jnp.maximum(max_abs, 1e-6)
+        ics = jax.vmap(_normalize)(ics)
 
         # Per-sample amplitude scaling — restores amplitude variability
         # that ic_max_one=True would suppress.
