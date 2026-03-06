@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flowpde"
+version = "0.1.0"
+description = "A backend library for normalizing flows solving inverse/forward problems in PDEs"
+authors = [
+  { name="Sarper Yurtseven" }
+]
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0.0",
+    "torchdiffeq>=0.2.4",
+    "numpy",
+    "PyYAML>=6.0",
+    "matplotlib",
+    "scipy",
+    "jax>=0.4.12",
+    "exponax>=0.1.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["flowpde*"]

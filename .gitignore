@@ -10,6 +10,6 @@
 /tests
 */.cache
 /.cache
-
+/flowpde.egg-info
 .DS_Store
 *.pyc

@@ -17,9 +17,6 @@ from torch import nn, Tensor
 import torch.nn.functional as F
 
 
-# =============================================================================
-# Activation Functions
-# =============================================================================
 
 class Swish(nn.Module):
     """Swish activation: f(x) = x * sigmoid(x), also known as SiLU."""
@@ -50,15 +47,11 @@ def get_activation(name: str = "swish") -> nn.Module:
     return activations[name.lower()]()
 
 
-# =============================================================================
-# Time Embedding
-# =============================================================================
-
 class FourierTimeEmbedding(nn.Module):
     """
     Sinusoidal time embedding for flow matching and diffusion models.
     
-    Maps scalar time t ∈ [0, 1] to high-dimensional feature vector using
+    Maps scalar time $$t \in [0, 1]$$ to high-dimensional feature vector using
     sinusoids at exponentially spaced frequencies. This provides a smooth,
     continuous representation of time that networks can easily learn from.
     
@@ -138,9 +131,6 @@ class TimeMLPEmbedding(nn.Module):
         return self.mlp(self.fourier(t))
 
 
-# =============================================================================
-# Normalization Utilities
-# =============================================================================
 
 def get_num_groups(channels: int, preferred: int = 32) -> int:
     """
