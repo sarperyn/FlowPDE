@@ -8,10 +8,12 @@ subsequent works (DeepONet, UQNO, etc.).
 
 Primary metric
 --------------
-**Relative L2 error** (also called "relative ℓ₂ error" or "nRMSE" in some
+**Relative L2 error** (also called "relative $\ell_2$ error" or "nRMSE" in some
 papers) is the single number reported in virtually every neural operator paper:
 
-    ε = ‖û - u‖₂ / ‖u‖₂
+$$
+\varepsilon = \frac{\lVert \hat{u} - u \rVert_2}{\lVert u \rVert_2}
+$$
 
 It is computed **per sample** (norms taken over channels + spatial dims) and
 then averaged over the batch.  This removes scale-dependence so errors are
@@ -20,7 +22,7 @@ comparable across PDEs with very different solution magnitudes.
 Secondary metrics
 -----------------
 - **H1 semi-norm error**: penalises gradient mismatch on top of value mismatch.
-  Meaningful for smooth PDEs (Poisson, Darcy) where solutions are in H¹.
+    Meaningful for smooth PDEs (Poisson, Darcy) where solutions are in $H^1$.
   Discretised via first-order finite differences.
 - **MAE** (Mean Absolute Error): complementary to L2, less sensitive to
   outliers.
