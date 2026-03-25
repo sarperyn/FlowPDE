@@ -1,18 +1,28 @@
-import torch
-from torch import nn, Tensor
+"""
+DEPRECATED — activation_functions.py
+=====================================
+``Swish`` is identical to ``torch.nn.SiLU``, which has been natively
+supported in PyTorch since v1.7 with a CUDA-optimised kernel.
+
+Use ``nn.SiLU()`` directly, or call
+``flowpde.models.components.get_activation("silu")`` for the factory helper.
+
+This module is kept only for backward compatibility and will be removed
+in a future version.
+"""
+
+import warnings
+from torch import nn
 
 
-class Swish(nn.Module):
-    """Swish activation function: $f(x) = x \cdot \sigma(x)$
-    
-    Also known as SiLU (Sigmoid Linear Unit).
-    Self-gated activation function that has been shown to
-    work better than ReLU in many deep learning applications.
-    
-    Where $\sigma(x) = \frac{1}{1 + e^{-x}}$ is the sigmoid function.
-    """
+class Swish(nn.SiLU):
+    """Deprecated alias for ``torch.nn.SiLU``.  Use ``nn.SiLU()`` instead."""
+
     def __init__(self):
+        warnings.warn(
+            "flowpde.utils.activation_functions.Swish is deprecated. "
+            "Use torch.nn.SiLU() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__()
-
-    def forward(self, x: Tensor) -> Tensor: 
-        return torch.sigmoid(x) * x

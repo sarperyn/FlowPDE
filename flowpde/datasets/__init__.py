@@ -9,13 +9,16 @@ Main Components:
 ----------------
 - PoissonGenerator: Generate Poisson equation datasets
 - BurgersGenerator: Generate Burgers equation datasets
+- DarcyGenerator: Generate Darcy-flow / variable-coefficient Poisson datasets
 - PDEDataset: PyTorch Dataset for generated data
+- DarcyDataset: PyTorch Dataset for Darcy-flow data
 - FlowDatasetWrapper: Converts datasets to flow training format
 
 Supported PDEs:
 ---------------
 - Poisson equation (1D/2D/3D): Elliptic source-to-solution
 - Burgers equation (1D/2D): Time-dependent viscous flow
+- Darcy flow (1D/2D): Variable-coefficient Poisson -∇·(κ∇u)=f
 
 Quick Start:
 ------------
@@ -65,6 +68,9 @@ from .exponax import (
     PoissonConfig,
     BurgersGenerator,
     BurgersConfig,
+    DarcyGenerator,
+    DarcyConfig,
+    DarcyDataset,
     jax_to_torch,
     torch_to_jax,
 )
@@ -75,9 +81,12 @@ __all__ = [
     'PoissonConfig',
     'BurgersGenerator',
     'BurgersConfig',
+    'DarcyGenerator',
+    'DarcyConfig',
 
-    # Dataset
+    # Datasets
     'PDEDataset',
+    'DarcyDataset',
     'GenerationConfig',
 
     # Wrappers

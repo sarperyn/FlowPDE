@@ -20,6 +20,8 @@ from .components import (
     expand_time_embedding,
     init_weights,
 )
+from flowpde.core.base_conditioner import BaseConditioner, ConcatConditioner, FiLMConditioner, NullConditioner
+from flowpde.models.convnet import _input_channels_for_conditioner
 
 
 class BasicBlock(nn.Module):
@@ -216,26 +218,30 @@ class ResNet(nn.Module):
         activation: str = "swish",
         downsample: bool = False,
         return_spatial: bool = False,
+        conditioner: Optional[BaseConditioner] = None,
     ):
         super().__init__()
-        
+
         if spatial_dim not in [1, 2]:
             raise ValueError(f"spatial_dim must be 1 or 2, got {spatial_dim}")
-        
+
         self.spatial_dim = spatial_dim
         self.spatial_size = spatial_size
         self.solution_channels = solution_channels
         self.condition_channels = condition_channels
         self.return_spatial = return_spatial
         self.num_stages = len(blocks_per_stage)
-        
+        self.conditioner = conditioner if conditioner is not None else ConcatConditioner(dim=1)
+
         # Time embedding
         time_emb_dim = base_channels * 4
         self.time_embed = TimeMLPEmbedding(dim=time_emb_dim, activation=activation)
-        
+
         Conv = get_conv_layer(spatial_dim)
-        in_channels = solution_channels + condition_channels
-        
+        in_channels = _input_channels_for_conditioner(
+            self.conditioner, solution_channels, condition_channels
+        )
+
         # Stem: initial convolution
         self.stem = nn.Sequential(
             Conv(in_channels, base_channels, kernel_size=7, padding=3, bias=False),
@@ -351,9 +357,9 @@ class ResNet(nn.Module):
         # Time embedding
         t_emb = self.time_embed(t)
         
-        # Concatenate x and condition
-        h = torch.cat([x, f], dim=1)
-        
+        # Apply conditioner (concat by default)
+        h = self.conditioner(x, f)
+
         # Stem
         h = self.stem(h)
         

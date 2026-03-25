@@ -18,23 +18,19 @@ import torch.nn.functional as F
 
 
 
-class Swish(nn.Module):
-    """Swish activation: f(x) = x * sigmoid(x), also known as SiLU."""
-    def forward(self, x: Tensor) -> Tensor:
-        return F.silu(x)
 
-
-def get_activation(name: str = "swish") -> nn.Module:
+def get_activation(name: str = "silu") -> nn.Module:
     """
     Factory function for activation functions.
     
     Args:
-        name: Activation name ('swish', 'silu', 'relu', 'gelu', 'tanh')
+        name: Activation name ('silu'/'swish', 'relu', 'gelu', 'tanh', 'leaky_relu')
     
     Returns:
         nn.Module activation function
     """
     activations = {
+        # Swish is commonly used as a synonym for SiLU.
         "swish": nn.SiLU,
         "silu": nn.SiLU,
         "relu": nn.ReLU,
@@ -42,9 +38,10 @@ def get_activation(name: str = "swish") -> nn.Module:
         "tanh": nn.Tanh,
         "leaky_relu": partial(nn.LeakyReLU, negative_slope=0.1),
     }
-    if name.lower() not in activations:
+    key = name.lower()
+    if key not in activations:
         raise ValueError(f"Unknown activation: {name}. Choose from {list(activations.keys())}")
-    return activations[name.lower()]()
+    return activations[key]()
 
 
 class FourierTimeEmbedding(nn.Module):
@@ -117,7 +114,7 @@ class TimeMLPEmbedding(nn.Module):
         self,
         dim: int = 128,
         hidden_mult: int = 4,
-        activation: str = "swish"
+        activation: str = "silu"
     ):
         super().__init__()
         self.fourier = FourierTimeEmbedding(dim=dim)

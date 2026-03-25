@@ -5,6 +5,8 @@ Fully-connected network for low-dimensional PDE problems where
 convolutional structure is not beneficial.
 """
 
+from typing import Optional
+
 import torch
 from torch import nn, Tensor
 
@@ -13,6 +15,7 @@ from .components import (
     get_activation,
     init_weights,
 )
+from flowpde.core.base_conditioner import BaseConditioner, ConcatConditioner, NullConditioner
 
 
 class MLP(nn.Module):
@@ -32,25 +35,40 @@ class MLP(nn.Module):
         - Flexible hidden dimension and depth
     
     Args:
-        input_dim: Dimension of input/output space
+        input_dim: Dimension of input/output space (x and the velocity output)
+        condition_dim: Dimension of the condition f. Defaults to input_dim when
+            using ConcatConditioner (the most common case).
         hidden_dim: Number of hidden units in each layer (default: 128)
         num_layers: Number of residual blocks (default: 4)
         activation: Activation function name (default: 'swish')
         dropout: Dropout probability (default: 0.0)
+        conditioner: Conditioning mechanism. Defaults to ConcatConditioner,
+            which concatenates f to x before the first linear layer.
     """
     def __init__(
         self,
         input_dim: int,
+        condition_dim: Optional[int] = None,
         hidden_dim: int = 128,
         num_layers: int = 4,
         activation: str = "swish",
         dropout: float = 0.0,
+        conditioner: Optional[BaseConditioner] = None,
     ):
         super().__init__()
-        
+
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
-        
+        self.conditioner = conditioner if conditioner is not None else ConcatConditioner(dim=1)
+
+        # Resolve the first linear layer's input size based on conditioner type
+        _condition_dim = condition_dim if condition_dim is not None else input_dim
+        if isinstance(self.conditioner, NullConditioner):
+            proj_in_dim = input_dim
+        else:
+            # ConcatConditioner or unknown: input_dim + condition_dim
+            proj_in_dim = input_dim + _condition_dim
+
         # Fourier time embedding
         fourier_dim = hidden_dim
         self.time_fourier = FourierTimeEmbedding(dim=fourier_dim)
@@ -58,10 +76,10 @@ class MLP(nn.Module):
             nn.Linear(fourier_dim, hidden_dim),
             get_activation(activation)
         )
-        
-        # Input projection: concatenate x and condition
+
+        # Input projection
         self.input_proj = nn.Sequential(
-            nn.Linear(input_dim + input_dim, hidden_dim),  # x + f
+            nn.Linear(proj_in_dim, hidden_dim),
             get_activation(activation)
         )
         
@@ -109,8 +127,8 @@ class MLP(nn.Module):
         t_emb = self.time_fourier(t)
         t_emb = self.time_proj(t_emb)
         
-        # Input projection
-        h = torch.cat([x, f], dim=1)
+        # Apply conditioner (concat by default)
+        h = self.conditioner(x, f)
         h = self.input_proj(h)
         
         # Add time embedding

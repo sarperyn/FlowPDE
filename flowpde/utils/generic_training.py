@@ -1,3 +1,19 @@
+"""
+DEPRECATED — generic_training.py
+==================================
+This script was an early proof-of-concept that drove training entirely from
+a YAML config file using dynamic class loading (``load_class``).  It has been
+superseded by the per-benchmark training scripts in ``scripts/``:
+
+    scripts/train_poisson_2d_flowmatching.py
+    scripts/train_burgers_1d_flowmatching.py
+    scripts/train_burgers_1d_rectified_flow.py
+    scripts/train_darcy_2d_flowmatching.py
+
+This file is kept for reference and will be removed in a future version.
+Do NOT add new functionality here.
+"""
+
 import torch
 import os
 import sys

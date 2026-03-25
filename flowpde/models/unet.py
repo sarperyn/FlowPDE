@@ -24,6 +24,8 @@ from .components import (
     expand_time_embedding,
     init_weights,
 )
+from flowpde.core.base_conditioner import BaseConditioner, ConcatConditioner, FiLMConditioner, NullConditioner
+from flowpde.models.convnet import _input_channels_for_conditioner
 
 
 class ConvBlock(nn.Module):
@@ -167,14 +169,15 @@ class UNet(nn.Module):
         max_channels: int = 512,
         use_attention: bool = True,
         norm_type: str = "group",
-        activation: str = "swish",
+        activation: str = "silu",
         return_spatial: bool = False,
+        conditioner: Optional[BaseConditioner] = None,
     ):
         super().__init__()
-        
+
         if spatial_dim not in [1, 2]:
             raise ValueError(f"spatial_dim must be 1 or 2, got {spatial_dim}")
-        
+
         self.spatial_dim = spatial_dim
         self.spatial_size = spatial_size
         self.base_channels = base_channels
@@ -182,22 +185,25 @@ class UNet(nn.Module):
         self.condition_channels = condition_channels
         self.use_attention = use_attention
         self.return_spatial = return_spatial
-        
+        self.conditioner = conditioner if conditioner is not None else ConcatConditioner(dim=1)
+
         # Calculate depth based on spatial resolution
         # We want to downsample until spatial size is ~4-8
         max_depth = int(math.floor(math.log2(spatial_size))) - 2
         self.depth = max(1, min(max_depth, 5))  # Cap at 5 levels
-        
+
         # Time embedding
         time_emb_dim = base_channels * 4
         self.time_embed = TimeMLPEmbedding(dim=time_emb_dim, activation=activation)
-        
+
         # Build encoder
         self.encoder_blocks = nn.ModuleList()
         self.pools = nn.ModuleList()
         self.time_projs_encoder = nn.ModuleList()
-        
-        in_ch = solution_channels + condition_channels
+
+        in_ch = _input_channels_for_conditioner(
+            self.conditioner, solution_channels, condition_channels
+        )
         Pool = get_pool_layer(spatial_dim, "max")
         
         encoder_channels = []
@@ -277,9 +283,9 @@ class UNet(nn.Module):
         # Time embedding
         t_emb = self.time_embed(t)
         
-        # Concatenate x and condition
-        h = torch.cat([x, f], dim=1)
-        
+        # Apply conditioner (concat by default)
+        h = self.conditioner(x, f)
+
         # Encoder path
         skips = []
         for i, (block, pool, t_proj) in enumerate(

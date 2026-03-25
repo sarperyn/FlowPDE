@@ -21,6 +21,27 @@ from .components import (
     expand_time_embedding,
     init_weights,
 )
+from flowpde.core.base_conditioner import BaseConditioner, ConcatConditioner, FiLMConditioner, NullConditioner
+
+
+def _input_channels_for_conditioner(
+    conditioner: BaseConditioner,
+    solution_channels: int,
+    condition_channels: int,
+) -> int:
+    """Return the number of channels the first layer receives after conditioning."""
+    if isinstance(conditioner, ConcatConditioner):
+        return solution_channels + condition_channels
+    elif isinstance(conditioner, NullConditioner):
+        return solution_channels
+    elif isinstance(conditioner, FiLMConditioner):
+        raise ValueError(
+            "FiLMConditioner modulates existing feature maps and cannot be used "
+            "as an input-level conditioner. Apply FiLM inside residual blocks instead."
+        )
+    else:
+        # Unknown conditioner — assume concat so existing models never break.
+        return solution_channels + condition_channels
 
 
 class ResidualBlock(nn.Module):
@@ -130,25 +151,29 @@ class ConvNet(nn.Module):
         activation: str = "swish",
         dropout: float = 0.0,
         return_spatial: bool = False,
+        conditioner: Optional[BaseConditioner] = None,
     ):
         super().__init__()
-        
+
         if spatial_dim not in [1, 2]:
             raise ValueError(f"spatial_dim must be 1 or 2, got {spatial_dim}")
-        
+
         self.spatial_dim = spatial_dim
         self.spatial_size = spatial_size
         self.hidden_channels = hidden_channels
         self.solution_channels = solution_channels
         self.condition_channels = condition_channels
         self.return_spatial = return_spatial
-        
+        self.conditioner = conditioner if conditioner is not None else ConcatConditioner(dim=1)
+
         # Time embedding
         time_emb_dim = hidden_channels
         self.time_embed = TimeMLPEmbedding(dim=time_emb_dim, activation=activation)
-        
-        # Input projection: concatenate x and condition
-        in_channels = solution_channels + condition_channels
+
+        # Input projection: channels depend on conditioner type
+        in_channels = _input_channels_for_conditioner(
+            self.conditioner, solution_channels, condition_channels
+        )
         Conv = get_conv_layer(spatial_dim)
         self.input_conv = Conv(in_channels, hidden_channels, 3, padding=1)
         
@@ -208,8 +233,8 @@ class ConvNet(nn.Module):
         # Time embedding
         t_emb = self.time_embed(t)
         
-        # Concatenate x and condition
-        h = torch.cat([x, f], dim=1)
+        # Apply conditioner (concat by default)
+        h = self.conditioner(x, f)
         h = self.input_conv(h)
         
         # Apply residual blocks
