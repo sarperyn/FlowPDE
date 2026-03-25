@@ -86,7 +86,7 @@ class BurgersConfig(GenerationConfig):
     domain_extent: float = 1.0
     dt: float = 0.001
     num_steps: int = 400
-    diffusivity_min: float = 1e-4
+    diffusivity_min: float = 1e-2
     diffusivity_max: float = 1e-2
     convection_scale: float = 1.0
     single_channel: bool = False
@@ -184,18 +184,18 @@ class BurgersGenerator:
         )(ics, cutoffs)
 
         # Mix Fourier and Gaussian bump ICs (single-channel only).
-        if ics.shape[1] == 1:
-            ics_gaussian = gaussian_bump_ic_batch(
-                bump_key,
-                n=n,
-                num_points=cfg.num_points,
-                domain_extent=cfg.domain_extent,
-                num_spatial_dims=cfg.num_spatial_dims,
-                max_bumps=cfg.gaussian_bump_max_bumps,
-            )  # (N, 1, *spatial)
-            mix_mask = jax.random.uniform(mix_key, (n,)) < cfg.gaussian_bump_prob
-            mask = mix_mask.reshape((n,) + (1,) * (ics.ndim - 1))
-            ics = jnp.where(mask, ics_gaussian, ics)
+        # if ics.shape[1] == 1:
+        #     ics_gaussian = gaussian_bump_ic_batch(
+        #         bump_key,
+        #         n=n,
+        #         num_points=cfg.num_points,
+        #         domain_extent=cfg.domain_extent,
+        #         num_spatial_dims=cfg.num_spatial_dims,
+        #         max_bumps=cfg.gaussian_bump_max_bumps,
+        #     )  # (N, 1, *spatial)
+        #     mix_mask = jax.random.uniform(mix_key, (n,)) < cfg.gaussian_bump_prob
+        #     mask = mix_mask.reshape((n,) + (1,) * (ics.ndim - 1))
+        #     ics = jnp.where(mask, ics_gaussian, ics)
 
         # Normalize every IC to max|field| = 1 so that amplitude_min/amplitude_max
         # is the sole control over output amplitude. Without this, Fourier ICs
