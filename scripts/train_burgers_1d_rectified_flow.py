@@ -13,21 +13,11 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from flowpde.datasets.exponax import BurgersGenerator, BurgersConfig
+from flowpde.datasets.wrappers import FlowDatasetWrapper
 from flowpde.models.resnet import ResNet
 from flowpde.flows.flow_matching import FlowMatching
 from flowpde.trainers.flow_trainer import FlowTrainer
-
-
-class FlowMatchingDatasetWrapper(torch.utils.data.Dataset):
-    def __init__(self, dataset):
-        self.dataset = dataset
-    
-    def __len__(self):
-        return len(self.dataset)
-    
-    def __getitem__(self, idx):
-        sample = self.dataset[idx]
-        return {'f': sample['input'], 'u': sample['target']}
+from flowpde.core.base_conditioner import ConcatConditioner, NullConditioner
 
 
 def parse_args():
@@ -44,6 +34,8 @@ def parse_args():
     
     # Model
     parser.add_argument("--base_channels", type=int, default=64)
+    parser.add_argument("--conditioner", type=str, default="concat", choices=["concat", "null"],
+                        help="Conditioning strategy: 'concat' (default) or 'null' (unconditional)")
     
     # Training
     parser.add_argument("--epochs", type=int, default=100)
@@ -85,7 +77,7 @@ def main():
     print(f"Train samples: {len(train_dataset)}")
     
     train_loader = DataLoader(
-        FlowMatchingDatasetWrapper(train_dataset), 
+        FlowDatasetWrapper(train_dataset),
         batch_size=args.batch_size, 
         shuffle=True,
         pin_memory=False,
@@ -93,6 +85,7 @@ def main():
     
     # Model
     print("Creating model...")
+    conditioner = ConcatConditioner(dim=1) if args.conditioner == "concat" else NullConditioner()
     model = ResNet(
         spatial_dim=1,
         spatial_size=args.num_points,
@@ -102,7 +95,9 @@ def main():
         condition_channels=1,
         downsample=False,
         return_spatial=False,
+        conditioner=conditioner,
     )
+    print(f"Conditioner: {args.conditioner}")
     print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
     
     # Rectified Flow: linear path + logit_normal time sampler

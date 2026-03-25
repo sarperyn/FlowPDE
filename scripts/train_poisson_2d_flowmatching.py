@@ -31,6 +31,7 @@ from flowpde.datasets.wrappers import FlowDatasetWrapper
 from flowpde.models.unet import UNet
 from flowpde.flows.flow_matching import FlowMatching
 from flowpde.trainers.flow_trainer import FlowTrainer
+from flowpde.core.base_conditioner import ConcatConditioner, NullConditioner
 
 
 def parse_args():
@@ -45,6 +46,8 @@ def parse_args():
     # Model parameters
     parser.add_argument("--base_channels", type=int, default=64, help="Base channels for UNet")
     parser.add_argument("--use_attention", action="store_true", default=True, help="Use attention in UNet")
+    parser.add_argument("--conditioner", type=str, default="concat", choices=["concat", "null"],
+                        help="Conditioning strategy: 'concat' (default) or 'null' (unconditional)")
     
     # Training parameters
     parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
@@ -150,6 +153,8 @@ def main():
     print("Creating UNet Model")
     print("-" * 60)
     
+    conditioner = ConcatConditioner(dim=1) if args.conditioner == "concat" else NullConditioner()
+
     model = UNet(
         spatial_dim=2,
         spatial_size=args.num_points,
@@ -160,6 +165,7 @@ def main():
         norm_type="group",
         activation="swish",
         return_spatial=False,  # Return flattened output for flow matching
+        conditioner=conditioner,
     )
     
     # Count parameters
@@ -168,6 +174,7 @@ def main():
     print(f"  Spatial size: {args.num_points}x{args.num_points}")
     print(f"  Base channels: {args.base_channels}")
     print(f"  Use attention: {args.use_attention}")
+    print(f"  Conditioner: {args.conditioner}")
     print(f"  Trainable parameters: {num_params:,}")
     
     # Setup Flow Matching
