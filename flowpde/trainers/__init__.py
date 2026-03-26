@@ -36,7 +36,6 @@ Example:
 from .trainer import Trainer
 from .flow_trainer import FlowTrainer
 from .cnf_trainer import CNFTrainer
-from ..utils.generic_training import *
 
 __all__ = [
     # Base class
