@@ -135,41 +135,41 @@ class PoissonGenerator:
         # Per-sample random spectral cutoff — each source gets an independently
         # drawn cutoff from [ic_cutoff_min, ic_cutoff_max], yielding a mixture
         # of smooth (low cutoff) and sharp (high cutoff) source functions.
-        cutoffs = jax.random.randint(
-            cutoff_key,
-            shape=(n,),
-            minval=cfg.ic_cutoff_min,
-            maxval=cfg.ic_cutoff_max + 1,
-        )
-        num_dims = cfg.num_spatial_dims
-        sources = jax.vmap(
-            lambda f, c: apply_spectral_cutoff(f, c, num_dims)
-        )(sources, cutoffs)
+        # cutoffs = jax.random.randint(
+        #     cutoff_key,
+        #     shape=(n,),
+        #     minval=cfg.ic_cutoff_min,
+        #     maxval=cfg.ic_cutoff_max + 1,
+        # )
+        # num_dims = cfg.num_spatial_dims
+        # sources = jax.vmap(
+        #     lambda f, c: apply_spectral_cutoff(f, c, num_dims)
+        # )(sources, cutoffs)
 
         # Mix Fourier and Gaussian bump source functions (single-channel only).
-        if sources.shape[1] == 1:
-            sources_gaussian = gaussian_bump_ic_batch(
-                bump_key,
-                n=n,
-                num_points=cfg.num_points,
-                domain_extent=cfg.domain_extent,
-                num_spatial_dims=cfg.num_spatial_dims,
-                max_bumps=cfg.gaussian_bump_max_bumps,
-            )  # (N, 1, *spatial)
-            mix_mask = jax.random.uniform(mix_key, (n,)) < cfg.gaussian_bump_prob
-            mask = mix_mask.reshape((n,) + (1,) * (sources.ndim - 1))
-            sources = jnp.where(mask, sources_gaussian, sources)
+        # if sources.shape[1] == 1:
+        #     sources_gaussian = gaussian_bump_ic_batch(
+        #         bump_key,
+        #         n=n,
+        #         num_points=cfg.num_points,
+        #         domain_extent=cfg.domain_extent,
+        #         num_spatial_dims=cfg.num_spatial_dims,
+        #         max_bumps=cfg.gaussian_bump_max_bumps,
+        #     )  # (N, 1, *spatial)
+        #     mix_mask = jax.random.uniform(mix_key, (n,)) < cfg.gaussian_bump_prob
+        #     mask = mix_mask.reshape((n,) + (1,) * (sources.ndim - 1))
+        #     sources = jnp.where(mask, sources_gaussian, sources)
 
-        # Per-sample amplitude scaling — restores amplitude variability
-        # that ic_max_one=True would suppress.
-        amp_shape = (n,) + (1,) * (sources.ndim - 1)
-        amplitudes = jax.random.uniform(
-            amp_key,
-            shape=amp_shape,
-            minval=cfg.amplitude_min,
-            maxval=cfg.amplitude_max,
-        )
-        sources = sources * amplitudes
+        # # Per-sample amplitude scaling — restores amplitude variability
+        # # that ic_max_one=True would suppress.
+        # amp_shape = (n,) + (1,) * (sources.ndim - 1)
+        # amplitudes = jax.random.uniform(
+        #     amp_key,
+        #     shape=amp_shape,
+        #     minval=cfg.amplitude_min,
+        #     maxval=cfg.amplitude_max,
+        # )
+        # sources = sources * amplitudes
 
         solutions = jax.vmap(solver)(sources)  #(N, C, *spatial)
 
