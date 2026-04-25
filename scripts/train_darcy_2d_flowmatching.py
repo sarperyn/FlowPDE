@@ -21,9 +21,16 @@ Forward problem (default): $(\kappa, f) \rightarrow u$
     condition_channels = 2   [$\mathrm{cat}([\kappa, f], \mathrm{dim}=0)$]
     solution_channels  = 1   [$u$]
 
-Inverse problem: $u \rightarrow \kappa$
+Inverse problem modes:
+  both:        $u \rightarrow (\kappa, f)$
     condition_channels = 1   [observed $u$ (possibly noisy/masked)]
+    solution_channels  = 2   [$\mathrm{cat}([\kappa, f], \mathrm{dim}=0)$]
+  coefficient: $(u, f) \rightarrow \kappa$
+    condition_channels = 2   [$\mathrm{cat}([u, f], \mathrm{dim}=0)$]
     solution_channels  = 1   [$\kappa$]
+  source:      $(u, \kappa) \rightarrow f$
+    condition_channels = 2   [$\mathrm{cat}([u, \kappa], \mathrm{dim}=0)$]
+    solution_channels  = 1   [$f$]
 
 Usage:
     python scripts/train_darcy_2d_flowmatching.py
@@ -47,7 +54,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from flowpde.datasets.exponax import DarcyGenerator, DarcyConfig
-from flowpde.datasets.wrappers import FlowDatasetWrapper
 from flowpde.models.unet import UNet
 from flowpde.flows.flow_matching import FlowMatching
 from flowpde.trainers.flow_trainer import FlowTrainer
@@ -70,7 +76,10 @@ def parse_args():
     # Problem type
     parser.add_argument("--problem", type=str, default="forward",
                         choices=["forward", "inverse"],
-                        help="'forward': (κ,f)→u | 'inverse': u→κ")
+                        help="'forward': (κ,f)→u | 'inverse': controlled by --inverse_mode")
+    parser.add_argument("--inverse_mode", type=str, default="both",
+                        choices=["both", "coefficient", "source"],
+                        help="'both': u→(κ,f), 'coefficient': (u,f)→κ, 'source': (u,κ)→f")
 
     # κ field parameters (GRF)
     parser.add_argument("--kappa_alpha", type=float, default=2.0,
@@ -168,6 +177,7 @@ def main():
     if args.problem == "inverse":
         print(f"  Obs noise std:   {args.obs_noise_std}")
         print(f"  Obs mask frac:   {args.obs_mask_fraction}")
+        print(f"  Inverse mode:    {args.inverse_mode}")
 
     generator = DarcyGenerator(
         num_spatial_dims=2,
@@ -185,11 +195,13 @@ def main():
         num_samples=args.num_train_samples,
         seed=args.seed,
         problem=args.problem,
+        inverse_mode=args.inverse_mode,
     )
     test_dataset = generator.generate(
         num_samples=args.num_test_samples,
         seed=args.seed + 773,
         problem=args.problem,
+        inverse_mode=args.inverse_mode,
     )
 
     print(f"\n  Train dataset size: {len(train_dataset)}")
@@ -203,25 +215,28 @@ def main():
 
     # condition_channels depends on the problem type:
     #   forward:  input = cat([κ, f], dim=0)  → 2 channels
-    #   inverse:  input = u                   → 1 channel
+    #   inverse both:        input = u             → 1 channel
+    #   inverse coefficient: input = cat([u, f])   → 2 channels
+    #   inverse source:      input = cat([u, κ])   → 2 channels
+    # solution_channels follows target:
+    #   forward:             target = u            → 1 channel
+    #   inverse both:        target = cat([κ, f])  → 2 channels
+    #   inverse coefficient: target = κ            → 1 channel
+    #   inverse source:      target = f            → 1 channel
     condition_channels = sample['input'].shape[0]
     solution_channels  = sample['target'].shape[0]
     print(f"\n  condition_channels: {condition_channels}")
     print(f"  solution_channels:  {solution_channels}")
 
-    # Wrap datasets for FlowMatching ({'input','target'} → {'f','u'})
-    train_dataset_wrapped = FlowDatasetWrapper(train_dataset)
-    test_dataset_wrapped  = FlowDatasetWrapper(test_dataset)
-
     train_loader = DataLoader(
-        train_dataset_wrapped,
+        train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=0,
         pin_memory=False,
     )
     test_loader = DataLoader(
-        test_dataset_wrapped,
+        test_dataset,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=0,
@@ -271,6 +286,8 @@ def main():
         path=args.path,
         time_sampler=args.time_sampler,
         sigma=args.sigma,
+        target_key="target",
+        condition_key="input",
     )
 
     print(f"  Path:         {args.path}")

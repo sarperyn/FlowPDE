@@ -66,8 +66,9 @@ class PDEDataset(Dataset):
       target=final state (forward) or vice-versa (inverse).
 
     When partial observations are enabled (``obs_mask_fraction < 1.0``),
-    ``__getitem__`` additionally returns ``'obs_mask'``: a float tensor of
-    shape ``(1, *spatial)`` with 1 at observed locations and 0 elsewhere.
+    ``__getitem__`` appends the observation mask to the conditioning input
+    and additionally returns ``'obs_mask'``: a float tensor of shape
+    ``(1, *spatial)`` with 1 at observed locations and 0 elsewhere.
 
     The dataset also stores normalization statistics and generation
     config for reference.
@@ -128,12 +129,17 @@ class PDEDataset(Dataset):
         return len(self.data[self.input_key])
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        inp = self.data[self.input_key][idx]
+        obs_mask = self.data.get('obs_mask')
+        if obs_mask is not None:
+            inp = torch.cat([inp, obs_mask[idx]], dim=0)
+
         sample = {
-            'input': self.data[self.input_key][idx],
+            'input': inp,
             'target': self.data[self.target_key][idx],
         }
-        if 'obs_mask' in self.data:
-            sample['obs_mask'] = self.data['obs_mask'][idx]
+        if obs_mask is not None:
+            sample['obs_mask'] = obs_mask[idx]
         return sample
 
     # Getters for metadata

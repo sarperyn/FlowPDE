@@ -27,7 +27,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from flowpde.datasets.exponax import PoissonGenerator
-from flowpde.datasets.wrappers import FlowDatasetWrapper
 from flowpde.models.unet import UNet
 from flowpde.flows.flow_matching import FlowMatching
 from flowpde.trainers.flow_trainer import FlowTrainer
@@ -124,13 +123,9 @@ def main():
     print(f"    Input (source) shape: {sample['input'].shape}")
     print(f"    Target (solution) shape: {sample['target'].shape}")
     
-    # Wrap datasets for FlowMatching ({'input','target'} → {'f','u'})
-    train_dataset_wrapped = FlowDatasetWrapper(train_dataset)
-    test_dataset_wrapped = FlowDatasetWrapper(test_dataset)
-    
     # Create data loaders
     train_loader = DataLoader(
-        train_dataset_wrapped, 
+        train_dataset,
         batch_size=args.batch_size, 
         shuffle=True,
         num_workers=0,  # JAX/NumPy data, keep simple
@@ -138,7 +133,7 @@ def main():
     )
     
     test_loader = DataLoader(
-        test_dataset_wrapped,
+        test_dataset,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=0,
@@ -187,6 +182,8 @@ def main():
         path=args.path,
         time_sampler=args.time_sampler,
         sigma=args.sigma,
+        target_key="target",
+        condition_key="input",
     )
     
     print(f"  Path: {args.path}")

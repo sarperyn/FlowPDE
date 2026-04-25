@@ -347,10 +347,20 @@ class DarcyDataset(Dataset):
 
     **Inverse** (``problem='inverse'``)::
 
-        sample['input']  → (1, *spatial)  observed u (possibly noisy / masked)
-        sample['target'] → (1, *spatial)  permeability field κ
+        inverse_mode='both':
+            sample['input']  → (1, *spatial)  observed u
+            sample['target'] → (2, *spatial)  cat([κ, f], dim=0)
 
-    When ``obs_mask_fraction < 1.0``, ``sample['obs_mask']`` (shape
+        inverse_mode='coefficient':
+            sample['input']  → (2, *spatial)  cat([u, f], dim=0)
+            sample['target'] → (1, *spatial)  permeability κ
+
+        inverse_mode='source':
+            sample['input']  → (2, *spatial)  cat([u, κ], dim=0)
+            sample['target'] → (1, *spatial)  source f
+
+    When ``obs_mask_fraction < 1.0``, the observation mask is appended to
+    ``sample['input']`` as an extra channel and ``sample['obs_mask']`` (shape
     ``(1, *spatial)``, float, 1 = observed, 0 = hidden) is also returned.
 
     All raw tensors (κ, f, u) are accessible via ``get_raw_data()``.
@@ -360,11 +370,16 @@ class DarcyDataset(Dataset):
         self,
         data: dict,
         problem: Literal['forward', 'inverse'] = 'forward',
+        inverse_mode: Literal['both', 'coefficient', 'source'] = 'coefficient',
         metadata: Optional[dict] = None,
     ):
         self.data     = data
         self.problem  = problem
+        self.inverse_mode = inverse_mode
         self.metadata = metadata or {}
+
+        if self.problem != 'inverse' and self.inverse_mode != 'both':
+            raise ValueError("inverse_mode is only used when problem='inverse'")
 
     def __len__(self) -> int:
         return len(self.data['solution'])
@@ -377,15 +392,31 @@ class DarcyDataset(Dataset):
         if self.problem == 'forward':
             inp    = torch.cat([kappa, f], dim=0)   # (2, *spatial)
             target = u
-        else:
-            # Inverse: recover κ from the (possibly noisy / partially
-            # observed) solution field.
+        elif self.inverse_mode == 'both':
+            # Recover both PDE inputs from the observed solution. #HARDEST
             inp    = u
+            target = torch.cat([kappa, f], dim=0)   # (2, *spatial)
+        elif self.inverse_mode == 'coefficient':
+            # Recover κ with source f treated as known conditioning data.
+            inp    = torch.cat([u, f], dim=0)       # (2, *spatial)
             target = kappa
+        elif self.inverse_mode == 'source':
+            # Recover f with coefficient κ treated as known conditioning data.
+            inp    = torch.cat([u, kappa], dim=0)   # (2, *spatial)
+            target = f
+        else:
+            raise ValueError(
+                f"Unknown inverse_mode: {self.inverse_mode}. "
+                "Expected 'both', 'coefficient', or 'source'."
+            )
+
+        obs_mask = self.data.get('obs_mask')
+        if obs_mask is not None:
+            inp = torch.cat([inp, obs_mask[idx]], dim=0)
 
         sample = {'input': inp, 'target': target}
-        if 'obs_mask' in self.data:
-            sample['obs_mask'] = self.data['obs_mask'][idx]
+        if obs_mask is not None:
+            sample['obs_mask'] = obs_mask[idx]
         return sample
 
     def get_stats(self) -> dict:
@@ -401,9 +432,6 @@ class DarcyDataset(Dataset):
         return self.data
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Generator
-# ──────────────────────────────────────────────────────────────────────────────
 
 class DarcyGenerator:
     """
@@ -439,6 +467,7 @@ class DarcyGenerator:
         num_samples: Optional[int] = None,
         seed: Optional[int] = None,
         problem: Literal['forward', 'inverse'] = 'forward',
+        inverse_mode: Literal['both', 'coefficient', 'source'] = 'both',
     ) -> DarcyDataset:
         """
         Generate a Darcy-flow dataset.
@@ -446,7 +475,10 @@ class DarcyGenerator:
         Args:
             num_samples: Override ``config.num_samples``.
             seed:        Override ``config.seed``.
-            problem:     ``'forward'`` (κ,f → u) or ``'inverse'`` (u → κ).
+            problem:     ``'forward'`` (κ,f → u) or ``'inverse'``.
+            inverse_mode: Inverse mapping to use:
+                ``'both'`` for u → (κ,f), ``'coefficient'`` for (u,f) → κ,
+                or ``'source'`` for (u,κ) → f.
 
         Returns:
             A ``DarcyDataset``.
@@ -527,7 +559,7 @@ class DarcyGenerator:
         )
         sources = sources * f_amps
 
-        # ── 3. Solve −∇·(κ ∇u) = f for each sample ───────────────────────
+        # ── 3. Solve for each sample ───────────────────────
         if d == 1:
             def solve_one(kappa, f):
                 return _solve_one_1d(kappa, f, h, N, cfg.cg_steps)
@@ -585,4 +617,9 @@ class DarcyGenerator:
             f"scale={cfg.kappa_scale}), CG steps={cfg.cg_steps}"
         )
 
-        return DarcyDataset(data, problem=problem, metadata=metadata)
+        return DarcyDataset(
+            data,
+            problem=problem,
+            inverse_mode=inverse_mode,
+            metadata=metadata,
+        )

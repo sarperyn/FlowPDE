@@ -59,8 +59,8 @@ class PoissonConfig(GenerationConfig):
             function when using the bump generator (default: 5).
     """
     order: int = 2
-    ic_cutoff_min: int = 3
-    ic_cutoff_max: int = 20
+    ic_cutoff_min: int = 0
+    ic_cutoff_max: int = 2
     ic_max_one: bool = False
     amplitude_min: float = 0.1
     amplitude_max: float = 5.0

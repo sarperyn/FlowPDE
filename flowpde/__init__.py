@@ -33,9 +33,6 @@ from flowpde.flows import FlowMatching, ContinuousNormalizingFlow, create_flow_m
 from flowpde.models import MLP, UNet, ConvNet, ResNet
 from flowpde.solvers import ODEFlowSolver
 from flowpde.trainers import FlowTrainer, CNFTrainer
-from flowpde.datasets import (
-    FlowDatasetWrapper, InverseFlowDatasetWrapper
-)
 
 # Public API
 __all__ = [
@@ -58,8 +55,4 @@ __all__ = [
     'FlowTrainer',
     'CNFTrainer',
     
-    # Datasets
-    'FlowDatasetWrapper',
-    'InverseFlowDatasetWrapper',
 ]
-

@@ -8,7 +8,7 @@ and can compute exact log probabilities via the instantaneous change of variable
 import torch
 import torch.nn as nn
 from torch import Tensor
-from typing import Optional, Dict, Tuple, Callable
+from typing import Optional, Dict, Tuple, Callable, Union
 import warnings
 
 from flowpde.core.base_flow import BaseFlow
@@ -166,6 +166,8 @@ class ContinuousNormalizingFlow(BaseFlow):
         trace_estimator: Method for trace computation ('exact' or 'hutchinson')
         n_trace_samples: Number of samples for Hutchinson estimator
         regularization: Weight for regularization term (optional)
+        target_key: Default batch key for target tensors (default: 'u')
+        condition_key: Default batch key for condition tensors (default: 'f')
     
     References:
         - Grathwohl et al., "FFJORD: Free-form Continuous Dynamics for Scalable
@@ -179,9 +181,15 @@ class ContinuousNormalizingFlow(BaseFlow):
         base_distribution: str = 'gaussian',
         trace_estimator: str = 'hutchinson',
         n_trace_samples: int = 1,
-        regularization: float = 0.0
+        regularization: float = 0.0,
+        target_key: str = "u",
+        condition_key: str = "f",
     ):
-        super().__init__(model)
+        super().__init__(
+            model,
+            target_key=target_key,
+            condition_key=condition_key,
+        )
         self.base_distribution = base_distribution
         self.trace_estimator = trace_estimator
         self.n_trace_samples = n_trace_samples
@@ -206,6 +214,8 @@ class ContinuousNormalizingFlow(BaseFlow):
     def compute_loss(
         self,
         batch: Dict[str, Tensor],
+        target_key: Optional[str] = None,
+        condition_key: Optional[str] = None,
         **kwargs
     ) -> Tensor:
         """
@@ -216,14 +226,22 @@ class ContinuousNormalizingFlow(BaseFlow):
         $$\mathcal{L} = -\log p(x_1) = -\log p(x_0) + \int_0^1 \text{tr}\left(\frac{\partial f}{\partial x}\right) dt$$
         
         Args:
-            batch: Dictionary with 'u' (target data) and 'f' (condition)
+            batch: Dictionary containing target and condition tensors.
+            target_key: Batch key for target data. Defaults to this flow's
+                configured target key ('u' by default).
+            condition_key: Batch key for conditioning data. Defaults to this
+                flow's configured condition key ('f' by default).
         
         Returns:
             Negative log likelihood loss
         """
         # Extract data
-        x_1 = batch["u"].flatten(start_dim=1).to(self.model_device)
-        condition = batch["f"].flatten(start_dim=1).to(self.model_device)
+        x_1, condition = self._extract_target_condition(
+            batch,
+            target_key=target_key,
+            condition_key=condition_key,
+        )
+        self._target_dim = x_1.shape[1]
         batch_size = x_1.shape[0]
         
         # Forward pass: transform data to base distribution
@@ -332,6 +350,7 @@ class ContinuousNormalizingFlow(BaseFlow):
         n_steps: int = 50,
         solver: str = 'dopri5',
         x_init: Optional[Tensor] = None,
+        target_shape: Optional[Union[int, Tuple[int, ...]]] = None,
         **solver_kwargs
     ) -> Tensor:
         """
@@ -342,6 +361,8 @@ class ContinuousNormalizingFlow(BaseFlow):
             n_steps: Number of integration steps (ignored for adaptive solvers)
             solver: ODE solver name
             x_init: Optional initial noise
+            target_shape: Shape of generated targets excluding batch. Required
+                before training when target and condition dimensions differ.
             **solver_kwargs: Additional solver arguments
         
         Returns:
@@ -349,7 +370,17 @@ class ContinuousNormalizingFlow(BaseFlow):
         """
         condition = condition.flatten(start_dim=1).to(self.model_device)
         batch_size = condition.shape[0]
-        dim = condition.shape[1]
+        if x_init is not None:
+            dim = x_init.flatten(start_dim=1).shape[1]
+        elif target_shape is not None:
+            if isinstance(target_shape, int):
+                dim = target_shape
+            else:
+                dim = 1
+                for size in target_shape:
+                    dim *= size
+        else:
+            dim = getattr(self, "_target_dim", condition.shape[1])
         
         # Sample from base distribution
         if x_init is None:
@@ -464,5 +495,7 @@ class ContinuousNormalizingFlow(BaseFlow):
             'trace_estimator': self.trace_estimator,
             'n_trace_samples': self.n_trace_samples,
             'regularization': self.regularization,
+            'target_key': self.target_key,
+            'condition_key': self.condition_key,
             'model_type': self.model.__class__.__name__
         }

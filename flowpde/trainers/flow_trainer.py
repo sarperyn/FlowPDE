@@ -50,6 +50,8 @@ class FlowTrainer(Trainer):
         device: Training device ('cuda' or 'cpu')
         gradient_clip: Max gradient norm (None to disable)
         use_amp: Use automatic mixed precision (default: False)
+        target_key: Batch key for target tensors (default: flow.target_key)
+        condition_key: Batch key for condition tensors (default: flow.condition_key)
     
     Example:
         ```python
@@ -77,6 +79,8 @@ class FlowTrainer(Trainer):
         device: str = "cuda",
         gradient_clip: Optional[float] = None,
         use_amp: bool = False,
+        target_key: Optional[str] = None,
+        condition_key: Optional[str] = None,
     ):
         # Call parent init with the flow's model
         super().__init__(
@@ -90,6 +94,8 @@ class FlowTrainer(Trainer):
         self.flow = flow
         self.gradient_clip = gradient_clip
         self.use_amp = use_amp
+        self.target_key = target_key or flow.target_key
+        self.condition_key = condition_key or flow.condition_key
         
         # Mixed precision scaler
         self.scaler = GradScaler() if use_amp else None
@@ -109,12 +115,16 @@ class FlowTrainer(Trainer):
         - MSE between predicted and target velocities
         
         Args:
-            batch: Dictionary with 'u' (targets) and 'f' (conditions)
+            batch: Dictionary with target and condition tensors
         
         Returns:
             Scalar loss tensor
         """
-        return self.flow.compute_loss(batch)
+        return self.flow.compute_loss(
+            batch,
+            target_key=self.target_key,
+            condition_key=self.condition_key,
+        )
     
     def step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, Any]:
         """
@@ -248,8 +258,11 @@ class FlowTrainer(Trainer):
         self.model.eval()
         with torch.no_grad():
             for batch in data_loader:
-                u = batch['u'].flatten(start_dim=1).to(self.device)
-                f = batch['f'].flatten(start_dim=1).to(self.device)
+                u, f = self.flow._extract_target_condition(
+                    batch,
+                    target_key=self.target_key,
+                    condition_key=self.condition_key,
+                )
                 
                 batch_size = u.shape[0]
                 dim = u.shape[1]
@@ -267,8 +280,8 @@ class FlowTrainer(Trainer):
                 # Store reflowed pair
                 # For reflow training, x_0 = z, x_1 = generated sample
                 reflowed_data.append({
-                    'u': x_1_new.cpu(),
-                    'f': f.cpu(),
+                    self.target_key: x_1_new.cpu(),
+                    self.condition_key: f.cpu(),
                     '_z': z.cpu(),  # Original noise (metadata)
                 })
         
@@ -314,7 +327,11 @@ class FlowTrainer(Trainer):
             if i >= n_batches:
                 break
             
-            metrics = self.flow.estimate_straightness(batch)
+            metrics = self.flow.estimate_straightness(
+                batch,
+                target_key=self.target_key,
+                condition_key=self.condition_key,
+            )
             total_straightness += metrics['straightness_score']
             total_velocity_std += metrics['velocity_std']
             n_samples += 1
@@ -323,6 +340,3 @@ class FlowTrainer(Trainer):
             'avg_straightness': total_straightness / n_samples,
             'avg_velocity_std': total_velocity_std / n_samples,
         }
-
-
-

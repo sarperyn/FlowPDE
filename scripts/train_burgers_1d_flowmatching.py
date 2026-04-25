@@ -13,7 +13,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from flowpde.datasets.exponax import BurgersGenerator, BurgersConfig
-from flowpde.datasets.wrappers import FlowDatasetWrapper
 from flowpde.models.resnet import ResNet
 from flowpde.flows.flow_matching import FlowMatching
 from flowpde.trainers.flow_trainer import FlowTrainer
@@ -81,7 +80,7 @@ def main():
     print(f"Train samples: {len(train_dataset)}")
     
     train_loader = DataLoader(
-        FlowDatasetWrapper(train_dataset),
+        train_dataset,
         batch_size=args.batch_size, 
         shuffle=True,
         pin_memory=False,
@@ -105,7 +104,13 @@ def main():
     print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
     
     # Flow Matching
-    flow = FlowMatching(model=model, path=args.path, time_sampler=args.time_sampler)
+    flow = FlowMatching(
+        model=model,
+        path=args.path,
+        time_sampler=args.time_sampler,
+        target_key="target",
+        condition_key="input",
+    )
     
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)

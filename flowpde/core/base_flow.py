@@ -27,6 +27,8 @@ class BaseFlow(ABC, nn.Module):
         self,
         model: nn.Module,
         base_distribution: str = 'gaussian',
+        target_key: str = 'u',
+        condition_key: str = 'f',
         **kwargs
     ):
         """
@@ -35,17 +37,44 @@ class BaseFlow(ABC, nn.Module):
         Args:
             model: Neural network that parameterizes the flow
             base_distribution: Type of base distribution ('gaussian', 'uniform', etc.)
+            target_key: Default batch key for target data
+            condition_key: Default batch key for conditioning data
             **kwargs: Additional flow-specific parameters
         """
         super().__init__()
         self.model = model
         self.base_distribution = base_distribution
+        self.target_key = target_key
+        self.condition_key = condition_key
         self._extra_kwargs = kwargs
     
     @property
     def model_device(self) -> torch.device:
         """Get the device of the model parameters."""
         return next(self.model.parameters()).device
+
+    def _extract_target_condition(
+        self,
+        batch: Dict[str, Tensor],
+        target_key: Optional[str] = None,
+        condition_key: Optional[str] = None,
+    ) -> Tuple[Tensor, Tensor]:
+        """Extract target and condition tensors from a training batch."""
+        target_key = target_key or self.target_key
+        condition_key = condition_key or self.condition_key
+
+        missing = [key for key in (target_key, condition_key) if key not in batch]
+        if missing:
+            available = ", ".join(sorted(batch.keys()))
+            expected = f"target_key='{target_key}', condition_key='{condition_key}'"
+            raise KeyError(
+                f"Batch is missing required key(s): {missing}. "
+                f"Expected {expected}. Available keys: [{available}]"
+            )
+
+        target = batch[target_key].flatten(start_dim=1).to(self.model_device)
+        condition = batch[condition_key].flatten(start_dim=1).to(self.model_device)
+        return target, condition
     
     @abstractmethod
     def forward_transform(

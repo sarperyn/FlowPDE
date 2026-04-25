@@ -6,7 +6,7 @@ exact log probability computation via trace estimation.
 """
 
 import torch
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from torch import Tensor
 
 from flowpde.trainers.trainer import Trainer
@@ -63,7 +63,9 @@ class CNFTrainer(Trainer):
         flow: ContinuousNormalizingFlow,
         optimizer: torch.optim.Optimizer,
         scheduler: Any = None,
-        device: str = 'cuda'
+        device: str = 'cuda',
+        target_key: Optional[str] = None,
+        condition_key: Optional[str] = None,
     ):
         """Initialize CNF trainer."""
         super().__init__(
@@ -73,14 +75,15 @@ class CNFTrainer(Trainer):
             device=device
         )
         self.flow = flow.to(device)
+        self.target_key = target_key or flow.target_key
+        self.condition_key = condition_key or flow.condition_key
     
     def compute_loss(self, batch: Dict[str, Tensor]) -> Tensor:
         """
         Compute CNF loss (negative log likelihood).
         
-        The batch should contain:
-        - 'u': Target data (e.g., PDE solutions)
-        - 'f': Conditioning information (e.g., PDE parameters, boundary conditions)
+        The batch should contain target and condition tensors, configured by
+        target_key and condition_key.
         
         For forward problems: condition on parameters, learn solution distribution
         For inverse problems: condition on observations, learn parameter posterior
@@ -90,13 +93,17 @@ class CNFTrainer(Trainer):
         $$\log p(x) = \log p(z) - \int_0^1 \text{tr}\left(\frac{\partial v}{\partial x}\right) dt$$
         
         Args:
-            batch: Dictionary with 'u' and 'f' tensors
+            batch: Dictionary with target and condition tensors
             
         Returns:
             Negative log likelihood loss tensor
         """
         # CNF already implements compute_loss (negative log likelihood)
-        loss = self.flow.compute_loss(batch)
+        loss = self.flow.compute_loss(
+            batch,
+            target_key=self.target_key,
+            condition_key=self.condition_key,
+        )
         return loss
     
     def step(self, batch: Dict[str, Tensor]) -> Dict[str, Any]:
@@ -132,5 +139,7 @@ class CNFTrainer(Trainer):
             'base_distribution': self.flow.base_distribution,
             'trace_estimator': self.flow.trace_estimator,
             'n_trace_samples': self.flow.n_trace_samples,
-            'regularization': self.flow.regularization
+            'regularization': self.flow.regularization,
+            'target_key': self.target_key,
+            'condition_key': self.condition_key,
         }

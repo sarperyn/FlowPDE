@@ -15,7 +15,12 @@ from .components import (
     get_activation,
     init_weights,
 )
-from flowpde.core.base_conditioner import BaseConditioner, ConcatConditioner, NullConditioner
+from flowpde.core.base_conditioner import (
+    BaseConditioner,
+    ConcatConditioner,
+    FiLMConditioner,
+    NullConditioner,
+)
 
 
 class MLP(nn.Module):
@@ -65,6 +70,12 @@ class MLP(nn.Module):
         _condition_dim = condition_dim if condition_dim is not None else input_dim
         if isinstance(self.conditioner, NullConditioner):
             proj_in_dim = input_dim
+        elif isinstance(self.conditioner, FiLMConditioner):
+            raise ValueError(
+                "FiLMConditioner modulates existing features and cannot be used "
+                "as the MLP input-level conditioner. Use ConcatConditioner or "
+                "NullConditioner here."
+            )
         else:
             # ConcatConditioner or unknown: input_dim + condition_dim
             proj_in_dim = input_dim + _condition_dim

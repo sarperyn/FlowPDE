@@ -1,17 +1,9 @@
 """
-Dataset Wrappers for Flow Training
-===================================
+Legacy dataset wrappers for flow training.
 
-Wrappers that convert standard dataset formats to flow-compatible formats.
-
-Flow trainers expect data in the format:
-    {'f': condition, 'u': target}
-
-But datasets might return different formats like:
-    {'input': ..., 'target': ...}
-    {'source': ..., 'coefficient': ..., 'solution': ...}
-
-These wrappers handle the conversion transparently.
+The preferred path is to use datasets directly and configure the trainer/flow
+with ``condition_key`` and ``target_key``. These wrappers remain as optional
+compatibility adapters for older code that expects ``{'f': condition, 'u': target}``.
 """
 
 from torch.utils.data import Dataset
@@ -20,10 +12,7 @@ from typing import Dict, Any, Optional, Callable
 
 class FlowDatasetWrapper(Dataset):
     """
-    Wrapper to convert standard dataset format to flow-compatible format.
-    
-    Flow trainers expect:
-        {'f': condition, 'u': target}
+    Legacy wrapper to convert standard dataset format to old flow keys.
     
     This wrapper converts from common formats:
         - {'input': X, 'target': y} → {'f': X, 'u': y}
@@ -33,10 +22,13 @@ class FlowDatasetWrapper(Dataset):
         dataset: The underlying dataset to wrap
         input_key: Key name for condition in original dataset (default: 'input')
         target_key: Key name for target in original dataset (default: 'target')
+        output_condition_key: Key name for condition in returned sample (default: 'f')
+        output_target_key: Key name for target in returned sample (default: 'u')
         transform: Optional transform to apply to samples
     
     Example:
-        >>> from flowpde.datasets import PoissonForwardDataset, FlowDatasetWrapper
+        >>> from flowpde.datasets.wrappers import FlowDatasetWrapper
+        >>> from flowpde.datasets import PoissonForwardDataset
         >>> dataset = PoissonForwardDataset('train.pt')
         >>> flow_dataset = FlowDatasetWrapper(dataset)
         >>> sample = flow_dataset[0]
@@ -48,11 +40,15 @@ class FlowDatasetWrapper(Dataset):
         dataset: Dataset,
         input_key: str = 'input',
         target_key: str = 'target',
+        output_condition_key: str = 'f',
+        output_target_key: str = 'u',
         transform: Optional[Callable] = None
     ):
         self.dataset = dataset
         self.input_key = input_key
         self.target_key = target_key
+        self.output_condition_key = output_condition_key
+        self.output_target_key = output_target_key
         self.transform = transform
     
     def __len__(self) -> int:
@@ -64,15 +60,15 @@ class FlowDatasetWrapper(Dataset):
         
         Returns:
             dict with keys:
-                'f': condition tensor
-                'u': target tensor
+                output_condition_key: condition tensor
+                output_target_key: target tensor
         """
         sample = self.dataset[idx]
         
         # Convert to flow format
         flow_sample = {
-            'f': sample[self.input_key],
-            'u': sample[self.target_key]
+            self.output_condition_key: sample[self.input_key],
+            self.output_target_key: sample[self.target_key]
         }
         
         # Apply optional transform
@@ -84,7 +80,7 @@ class FlowDatasetWrapper(Dataset):
 
 class InverseFlowDatasetWrapper(Dataset):
     """
-    Wrapper for inverse problems: observation → parameters.
+    Legacy wrapper for inverse problems: observation → parameters.
     
     For inverse problems, the 'observation' is the condition and
     the parameters (source, coefficient, etc.) are the targets.
@@ -93,10 +89,13 @@ class InverseFlowDatasetWrapper(Dataset):
         dataset: The underlying inverse problem dataset
         observation_key: Key for observation in original dataset (default: 'observation')
         target_keys: List of keys to concatenate as target (e.g., ['source', 'coefficient'])
+        output_condition_key: Key name for condition in returned sample (default: 'f')
+        output_target_key: Key name for target in returned sample (default: 'u')
         transform: Optional transform to apply to samples
     
     Example:
-        >>> from flowpde.datasets import PoissonInverseDataset, InverseFlowDatasetWrapper
+        >>> from flowpde.datasets.wrappers import InverseFlowDatasetWrapper
+        >>> from flowpde.datasets import PoissonInverseDataset
         >>> dataset = PoissonInverseDataset('train.pt')
         >>> flow_dataset = InverseFlowDatasetWrapper(
         ...     dataset,
@@ -112,11 +111,15 @@ class InverseFlowDatasetWrapper(Dataset):
         dataset: Dataset,
         observation_key: str = 'observation',
         target_keys: Optional[list] = None,
+        output_condition_key: str = 'f',
+        output_target_key: str = 'u',
         transform: Optional[Callable] = None
     ):
         self.dataset = dataset
         self.observation_key = observation_key
         self.target_keys = target_keys or ['source', 'coefficient']
+        self.output_condition_key = output_condition_key
+        self.output_target_key = output_target_key
         self.transform = transform
     
     def __len__(self) -> int:
@@ -128,8 +131,8 @@ class InverseFlowDatasetWrapper(Dataset):
         
         Returns:
             dict with keys:
-                'f': observation (condition)
-                'u': concatenated target parameters
+                output_condition_key: observation (condition)
+                output_target_key: concatenated target parameters
         """
         import torch
         
@@ -146,8 +149,8 @@ class InverseFlowDatasetWrapper(Dataset):
             target = torch.cat(targets, dim=0)
         
         flow_sample = {
-            'f': condition,
-            'u': target
+            self.output_condition_key: condition,
+            self.output_target_key: target
         }
         
         if self.transform is not None:

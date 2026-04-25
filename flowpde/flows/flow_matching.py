@@ -59,6 +59,8 @@ class FlowMatching(BaseFlow):
         time_sampler: Time distribution ('uniform', 'logit_normal') or TimeSampler
         coupling: Coupling strategy ('independent', 'minibatch_ot') or Coupling
         sigma: Noise level for OT-conditional path (default: 0.0)
+        target_key: Default batch key for target tensors (default: 'u')
+        condition_key: Default batch key for condition tensors (default: 'f')
     
     References:
         - Lipman et al., "Flow Matching for Generative Modeling", ICLR 2023
@@ -73,8 +75,14 @@ class FlowMatching(BaseFlow):
         time_sampler: Union[str, TimeSampler] = "uniform",
         coupling: Union[str, Coupling] = "independent",
         sigma: float = 0.0,
+        target_key: str = "u",
+        condition_key: str = "f",
     ):
-        super().__init__(model)
+        super().__init__(
+            model,
+            target_key=target_key,
+            condition_key=condition_key,
+        )
         
         # Initialize components
         # Pass sigma to OT path if needed
@@ -103,6 +111,8 @@ class FlowMatching(BaseFlow):
     def compute_loss(
         self,
         batch: Dict[str, Tensor],
+        target_key: Optional[str] = None,
+        condition_key: Optional[str] = None,
         **kwargs
     ) -> Tensor:
         """
@@ -118,16 +128,22 @@ class FlowMatching(BaseFlow):
         - $f$ is the conditioning information
         
         Args:
-            batch: Dictionary containing:
-                - 'u': Target data (solutions) - this is x_1
-                - 'f': Conditioning data (source terms)
+            batch: Dictionary containing target and condition tensors.
+            target_key: Batch key for target data. Defaults to this flow's
+                configured target key ('u' by default).
+            condition_key: Batch key for conditioning data. Defaults to this
+                flow's configured condition key ('f' by default).
         
         Returns:
             MSE loss tensor (scalar)
         """
         # Extract and prepare data
-        x_1 = batch["u"].flatten(start_dim=1).to(self.model_device)
-        condition = batch["f"].flatten(start_dim=1).to(self.model_device)
+        x_1, condition = self._extract_target_condition(
+            batch,
+            target_key=target_key,
+            condition_key=condition_key,
+        )
+        self._target_dim = x_1.shape[1]
         batch_size = x_1.shape[0]
         
         # Sample from base distribution (noise)
@@ -156,6 +172,7 @@ class FlowMatching(BaseFlow):
         n_steps: int = 50,
         solver: str = 'euler',
         x_init: Optional[Tensor] = None,
+        target_shape: Optional[Union[int, Tuple[int, ...]]] = None,
         return_trajectory: bool = False,
         **solver_kwargs
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
@@ -171,6 +188,9 @@ class FlowMatching(BaseFlow):
             n_steps: Number of integration steps
             solver: ODE solver ('euler', 'midpoint', 'rk4', 'dopri5')
             x_init: Optional initial noise (default: sample from N(0,I))
+            target_shape: Shape of generated targets excluding batch, or a
+                flattened target dimension. Required before training when the
+                target and condition dimensions differ.
             return_trajectory: If True, return full trajectory
             **solver_kwargs: Additional solver arguments
         
@@ -183,13 +203,23 @@ class FlowMatching(BaseFlow):
         # Flatten condition
         condition_flat = condition.flatten(start_dim=1).to(self.model_device)
         batch_size = condition_flat.shape[0]
-        dim = condition_flat.shape[1]
+        if x_init is not None:
+            dim = x_init.flatten(start_dim=1).shape[1]
+        elif target_shape is not None:
+            if isinstance(target_shape, int):
+                dim = target_shape
+            else:
+                dim = 1
+                for size in target_shape:
+                    dim *= size
+        else:
+            dim = getattr(self, "_target_dim", condition_flat.shape[1])
         
         # Sample initial noise if not provided
         if x_init is None:
             x_init = self.sample_base_distribution((batch_size, dim), self.model_device)
         else:
-            x_init = x_init.to(self.model_device)
+            x_init = x_init.flatten(start_dim=1).to(self.model_device)
         
         # Create solver and integrate
         ode_solver = ODEFlowSolver(model=self.model, method=solver, **solver_kwargs)
@@ -206,6 +236,8 @@ class FlowMatching(BaseFlow):
         self,
         batch: Dict[str, Tensor],
         n_time_points: int = 10,
+        target_key: Optional[str] = None,
+        condition_key: Optional[str] = None,
     ) -> Dict[str, float]:
         """
         Estimate how straight the learned transport paths are.
@@ -214,8 +246,10 @@ class FlowMatching(BaseFlow):
         predicts similar v at different time points for the same (x_0, x_1) pair.
         
         Args:
-            batch: Batch with 'u' and 'f'
+            batch: Batch with target and condition tensors
             n_time_points: Number of time points to evaluate
+            target_key: Batch key for target data
+            condition_key: Batch key for conditioning data
         
         Returns:
             Dictionary with:
@@ -224,8 +258,11 @@ class FlowMatching(BaseFlow):
         """
         self.model.eval()
         
-        x_1 = batch["u"].flatten(start_dim=1).to(self.model_device)
-        condition = batch["f"].flatten(start_dim=1).to(self.model_device)
+        x_1, condition = self._extract_target_condition(
+            batch,
+            target_key=target_key,
+            condition_key=condition_key,
+        )
         batch_size = x_1.shape[0]
         
         x_0 = self.sample_base_distribution(x_1.shape, self.model_device)
@@ -285,6 +322,8 @@ class FlowMatching(BaseFlow):
             'time_sampler': self._time_sampler_name,
             'coupling': self._coupling_name,
             'sigma': self.sigma,
+            'target_key': self.target_key,
+            'condition_key': self.condition_key,
             'model_type': self.model.__class__.__name__,
         }
     

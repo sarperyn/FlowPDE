@@ -13,7 +13,6 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from flowpde.datasets.exponax import BurgersGenerator, BurgersConfig
-from flowpde.datasets.wrappers import FlowDatasetWrapper
 from flowpde.models.resnet import ResNet
 from flowpde.flows.flow_matching import FlowMatching
 from flowpde.trainers.flow_trainer import FlowTrainer
@@ -77,7 +76,7 @@ def main():
     print(f"Train samples: {len(train_dataset)}")
     
     train_loader = DataLoader(
-        FlowDatasetWrapper(train_dataset),
+        train_dataset,
         batch_size=args.batch_size, 
         shuffle=True,
         pin_memory=False,
@@ -105,6 +104,8 @@ def main():
         model=model,
         path='linear',
         time_sampler='logit_normal',
+        target_key="target",
+        condition_key="input",
     )
     print("Using Rectified Flow (logit_normal time sampling)")
     

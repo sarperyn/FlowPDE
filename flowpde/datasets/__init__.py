@@ -12,7 +12,6 @@ Main Components:
 - DarcyGenerator: Generate Darcy-flow / variable-coefficient Poisson datasets
 - PDEDataset: PyTorch Dataset for generated data
 - DarcyDataset: PyTorch Dataset for Darcy-flow data
-- FlowDatasetWrapper: Converts datasets to flow training format
 
 Supported PDEs:
 ---------------
@@ -22,22 +21,19 @@ Supported PDEs:
 
 Quick Start:
 ------------
-    from flowpde.datasets import PoissonGenerator, FlowDatasetWrapper
+    from flowpde.datasets import PoissonGenerator
     from torch.utils.data import DataLoader
 
     # 1. Generate Poisson 2D dataset (source → solution)
     gen = PoissonGenerator(num_points=64, domain_extent=10.0)
     dataset = gen.generate(num_samples=1000, seed=42)
 
-    # 2. Wrap for flow training (converts to {'f', 'u'} format)
-    flow_dataset = FlowDatasetWrapper(dataset)
-
-    # 3. Use with DataLoader
-    loader = DataLoader(flow_dataset, batch_size=32, shuffle=True)
+    # 2. Use with DataLoader
+    loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
     for batch in loader:
-        condition = batch['f']  # Conditioning input
-        target = batch['u']     # Target to learn
+        condition = batch['input']   # Conditioning input
+        target = batch['target']     # Target to learn
 
 Burgers Example:
 ----------------
@@ -56,9 +52,6 @@ Dependencies:
 -------------
 Requires Exponax: pip install exponax jax
 """
-
-# Wrappers (always available)
-from .wrappers import FlowDatasetWrapper, InverseFlowDatasetWrapper
 
 # Exponax integration
 from .exponax import (
@@ -88,10 +81,6 @@ __all__ = [
     'PDEDataset',
     'DarcyDataset',
     'GenerationConfig',
-
-    # Wrappers
-    'FlowDatasetWrapper',
-    'InverseFlowDatasetWrapper',
 
     # Utilities
     'jax_to_torch',

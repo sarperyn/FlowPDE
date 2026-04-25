@@ -55,6 +55,8 @@ def visualize_flow_evolution(
     figsize_per_col: float = 2.5,
     title_fontsize: int = 9,
     dpi: int = 200,
+    target_key: str = "u",
+    condition_key: str = "f",
 ) -> None:
     """Visualise the flow matching trajectory from noise (t=0) to solution (t=1).
 
@@ -63,7 +65,7 @@ def visualize_flow_evolution(
     solution for comparison.
 
     Supports **1-D** (line plot) and **2-D** (imshow) spatial fields.
-    The spatial shape is inferred from the target tensor ``u``; no assumption
+    The spatial shape is inferred from the target tensor; no assumption
     about square grids is made.
 
     Args:
@@ -71,8 +73,8 @@ def visualize_flow_evolution(
                            ``model(x, condition, t) → velocity``.
                            ``x`` and ``condition`` keep their original spatial
                            shape (B, C, *spatial).  ``t`` is shape ``(B,)``.
-        dataloader:        DataLoader yielding dicts with keys ``'u'`` and
-                           ``'f'``, or tuples ``(u, f)``.
+        dataloader:        DataLoader yielding dicts with target/condition keys,
+                           or tuples ``(u, f)``.
         fig_path:          Output path for the saved figure.
         n_steps:           Number of intermediate snapshots (columns between
                            t=0 and t=1).
@@ -84,14 +86,24 @@ def visualize_flow_evolution(
         figsize_per_col:   Figure width / height per column in inches.
         title_fontsize:    Font size for column titles.
         dpi:               Figure DPI.
+        target_key:        Batch key for target tensors in dict batches.
+        condition_key:     Batch key for condition tensors in dict batches.
     """
     model.eval()
 
     # ── Fetch one batch ───────────────────────────────────────────────────────
     batch = next(iter(dataloader))
     if isinstance(batch, dict):
-        u = batch["u"].float().to(device)   # (B, C_u, *spatial)
-        f = batch["f"].float().to(device)   # (B, C_f, *spatial)
+        missing = [key for key in (target_key, condition_key) if key not in batch]
+        if missing:
+            available = ", ".join(sorted(batch.keys()))
+            raise KeyError(
+                f"Batch is missing required key(s): {missing}. "
+                f"Expected target_key='{target_key}', condition_key='{condition_key}'. "
+                f"Available keys: [{available}]"
+            )
+        u = batch[target_key].float().to(device)       # (B, C_u, *spatial)
+        f = batch[condition_key].float().to(device)    # (B, C_f, *spatial)
     else:
         u, f = batch
         u = u.float().to(device)
