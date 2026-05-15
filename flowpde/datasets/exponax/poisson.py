@@ -19,15 +19,13 @@ Example::
 """
 
 from dataclasses import dataclass
-from typing import Optional, Literal
+from typing import Literal, Optional
 
-import torch
 import jax
-import jax.numpy as jnp
 import exponax as ex
 
 from .base import GenerationConfig, PDEDataset
-from .converters import jax_to_torch, compute_normalization_stats, apply_spectral_cutoff, gaussian_bump_ic_batch
+from .generator import ExponaxDatasetGenerator, FourierFieldConfig, sample_fourier_fields
 
 
 @dataclass
@@ -68,7 +66,7 @@ class PoissonConfig(GenerationConfig):
     gaussian_bump_max_bumps: int = 5
 
 
-class PoissonGenerator:
+class PoissonGenerator(ExponaxDatasetGenerator):
     """
     Generate Poisson equation datasets using Exponax.
 
@@ -83,10 +81,7 @@ class PoissonGenerator:
                 are forwarded to 'PoissonConfig' if *config* is None.
     """
 
-    def __init__(self, config: Optional[PoissonConfig] = None, **kwargs):
-        if config is None:
-            config = PoissonConfig(**kwargs)
-        self.config = config
+    config_cls = PoissonConfig
 
     def generate(
         self,
@@ -105,120 +100,44 @@ class PoissonGenerator:
         Returns:
             A ``PDEDataset`` with keys ``'source'`` and ``'solution'``.
         """
-        cfg = self.config
-        n = num_samples or cfg.num_samples
-        s = seed if seed is not None else cfg.seed
+        cfg, n, s = self.resolve_run(num_samples, seed)
 
-        #Exponax objects
         solver = ex.poisson.Poisson(
             num_spatial_dims=cfg.num_spatial_dims,
             domain_extent=cfg.domain_extent,
             num_points=cfg.num_points,
             order=cfg.order,
         )
-        ic_gen = ex.ic.RandomTruncatedFourierSeries(
-            num_spatial_dims=cfg.num_spatial_dims,
-            cutoff=cfg.ic_cutoff_max,
-            max_one=cfg.ic_max_one,
+
+        sources = sample_fourier_fields(
+            jax.random.PRNGKey(s),
+            n=n,
+            cfg=cfg,
+            field=FourierFieldConfig(
+                cutoff_min=cfg.ic_cutoff_min,
+                cutoff_max=cfg.ic_cutoff_max,
+                max_one=cfg.ic_max_one,
+                amplitude_min=1.0,
+                amplitude_max=1.0,
+                gaussian_bump_prob=0.0,
+                gaussian_bump_max_bumps=cfg.gaussian_bump_max_bumps,
+                random_cutoff=False,
+                normalize=False,
+            ),
+        )
+        solutions = jax.vmap(solver)(sources)
+
+        data = self.to_torch_data({
+            'source': sources,
+            'solution': solutions,
+        })
+        self.apply_inverse_observations(
+            data,
+            observation_key='solution',
+            problem=problem,
+            n=n,
+            seed=s,
         )
 
-        #Generate data
-        key = jax.random.PRNGKey(s)
-        key, amp_key, cutoff_key, bump_key, mix_key = jax.random.split(key, 5)
-        sources = ex.build_ic_set(
-            ic_gen,
-            num_points=cfg.num_points,
-            num_samples=n,
-            key=key,
-        )  #(N, C, *spatial)
-
-        # Per-sample random spectral cutoff — each source gets an independently
-        # drawn cutoff from [ic_cutoff_min, ic_cutoff_max], yielding a mixture
-        # of smooth (low cutoff) and sharp (high cutoff) source functions.
-        # cutoffs = jax.random.randint(
-        #     cutoff_key,
-        #     shape=(n,),
-        #     minval=cfg.ic_cutoff_min,
-        #     maxval=cfg.ic_cutoff_max + 1,
-        # )
-        # num_dims = cfg.num_spatial_dims
-        # sources = jax.vmap(
-        #     lambda f, c: apply_spectral_cutoff(f, c, num_dims)
-        # )(sources, cutoffs)
-
-        # Mix Fourier and Gaussian bump source functions (single-channel only).
-        # if sources.shape[1] == 1:
-        #     sources_gaussian = gaussian_bump_ic_batch(
-        #         bump_key,
-        #         n=n,
-        #         num_points=cfg.num_points,
-        #         domain_extent=cfg.domain_extent,
-        #         num_spatial_dims=cfg.num_spatial_dims,
-        #         max_bumps=cfg.gaussian_bump_max_bumps,
-        #     )  # (N, 1, *spatial)
-        #     mix_mask = jax.random.uniform(mix_key, (n,)) < cfg.gaussian_bump_prob
-        #     mask = mix_mask.reshape((n,) + (1,) * (sources.ndim - 1))
-        #     sources = jnp.where(mask, sources_gaussian, sources)
-
-        # # Per-sample amplitude scaling — restores amplitude variability
-        # # that ic_max_one=True would suppress.
-        # amp_shape = (n,) + (1,) * (sources.ndim - 1)
-        # amplitudes = jax.random.uniform(
-        #     amp_key,
-        #     shape=amp_shape,
-        #     minval=cfg.amplitude_min,
-        #     maxval=cfg.amplitude_max,
-        # )
-        # sources = sources * amplitudes
-
-        solutions = jax.vmap(solver)(sources)  #(N, C, *spatial)
-
-        #Convert to PyTorch
-        sources_pt = jax_to_torch(sources, device=cfg.torch_device)
-        solutions_pt = jax_to_torch(solutions, device=cfg.torch_device)
-
-        if problem == 'inverse':
-            # Additive observation noise
-            if cfg.obs_noise_std > 0.0:
-                solutions_pt = solutions_pt + cfg.obs_noise_std * torch.randn_like(solutions_pt)
-
-            # Partial observations — random Bernoulli mask over spatial grid.
-            # Mask shape: (N, 1, *spatial) so it broadcasts over all channels.
-            # Stored in data so __getitem__ can return it alongside input/target.
-            if cfg.obs_mask_fraction < 1.0:
-                spatial_shape = (cfg.num_points,) * cfg.num_spatial_dims
-                mask_gen = torch.Generator().manual_seed(s)
-                obs_mask = (
-                    torch.rand((n, 1) + spatial_shape, generator=mask_gen)
-                    < cfg.obs_mask_fraction
-                ).float().to(device=cfg.torch_device)
-                solutions_pt = solutions_pt * obs_mask
-            else:
-                obs_mask = None
-        else:
-            obs_mask = None
-
-        data = {
-            'source': sources_pt,
-            'solution': solutions_pt,
-        }
-        if obs_mask is not None:
-            data['obs_mask'] = obs_mask
-
-        #Metadata
-        stats = {
-            'source': compute_normalization_stats(sources_pt),
-            'solution': compute_normalization_stats(solutions_pt),
-        }
-
-        metadata = {
-            'stats': stats,
-            'config': cfg.to_dict(),
-        }
-
-        print(
-            f"Generated Poisson {cfg.num_spatial_dims}D dataset: "
-            f"{n} samples, {cfg.num_points}{'x' + str(cfg.num_points) if cfg.num_spatial_dims >= 2 else ''} grid"
-        )
-
-        return PDEDataset(data, problem=problem, metadata=metadata)
+        self.print_summary("Poisson", n)
+        return self.wrap_dataset(data, problem=problem)

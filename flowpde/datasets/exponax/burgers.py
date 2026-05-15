@@ -31,13 +31,16 @@ Example::
 from dataclasses import dataclass, field
 from typing import Optional, Literal
 
-import torch
 import jax
-import jax.numpy as jnp
 import exponax as ex
 
 from .base import GenerationConfig, PDEDataset
-from .converters import jax_to_torch, compute_normalization_stats, apply_spectral_cutoff, gaussian_bump_ic_batch
+from .generator import (
+    ExponaxDatasetGenerator,
+    FourierFieldConfig,
+    log_uniform,
+    sample_fourier_fields,
+)
 
 
 @dataclass
@@ -100,7 +103,7 @@ class BurgersConfig(GenerationConfig):
     store_trajectory: bool = False
 
 
-class BurgersGenerator:
+class BurgersGenerator(ExponaxDatasetGenerator):
     """
     Generate Burgers equation datasets using Exponax.
 
@@ -116,10 +119,7 @@ class BurgersGenerator:
                 forwarded to ``BurgersConfig`` if *config* is None.
     """
 
-    def __init__(self, config: Optional[BurgersConfig] = None, **kwargs):
-        if config is None:
-            config = BurgersConfig(**kwargs)
-        self.config = config
+    config_cls = BurgersConfig
 
     def generate(
         self,
@@ -139,83 +139,33 @@ class BurgersGenerator:
             A ``PDEDataset`` with keys ``'initial'`` and ``'final'``
             (and optionally ``'trajectory'``).
         """
-        cfg = self.config
-        n = num_samples or cfg.num_samples
-        s = seed if seed is not None else cfg.seed
-
-        # --- IC generation ---
-        ic_gen = ex.ic.RandomTruncatedFourierSeries(
-            num_spatial_dims=cfg.num_spatial_dims,
-            cutoff=cfg.ic_cutoff_max,
-            max_one=cfg.ic_max_one,
-        )
+        cfg, n, s = self.resolve_run(num_samples, seed)
 
         key = jax.random.PRNGKey(s)
-        key, amp_key, cutoff_key, nu_key, bump_key, mix_key = jax.random.split(key, 6)
+        field_key, nu_key = jax.random.split(key, 2)
 
-        # Per-sample log-uniform diffusivity — spans smooth (high ν) to
-        # shock-dominated (low ν) regimes in a single dataset.
-        log_nus = jax.random.uniform(
+        nus = log_uniform(
             nu_key,
-            shape=(n,),
-            minval=jnp.log(cfg.diffusivity_min),
-            maxval=jnp.log(cfg.diffusivity_max),
+            n=n,
+            min_value=cfg.diffusivity_min,
+            max_value=cfg.diffusivity_max,
         )
-        nus = jnp.exp(log_nus)
-        ics = ex.build_ic_set(
-            ic_gen,
-            num_points=cfg.num_points,
-            num_samples=n,
-            key=key,
-        )  # (N, C, *spatial)
-
-        # Per-sample random spectral cutoff — each IC gets an independently
-        # drawn cutoff from [ic_cutoff_min, ic_cutoff_max], yielding a mixture
-        # of smooth (low cutoff) and sharp (high cutoff) initial conditions.
-        cutoffs = jax.random.randint(
-            cutoff_key,
-            shape=(n,),
-            minval=cfg.ic_cutoff_min,
-            maxval=cfg.ic_cutoff_max + 1,
+        ics = sample_fourier_fields(
+            field_key,
+            n=n,
+            cfg=cfg,
+            field=FourierFieldConfig(
+                cutoff_min=cfg.ic_cutoff_min,
+                cutoff_max=cfg.ic_cutoff_max,
+                max_one=cfg.ic_max_one,
+                amplitude_min=cfg.amplitude_min,
+                amplitude_max=cfg.amplitude_max,
+                gaussian_bump_prob=cfg.gaussian_bump_prob,
+                gaussian_bump_max_bumps=cfg.gaussian_bump_max_bumps,
+                normalize=True,
+                random_cutoff=True,
+            ),
         )
-        num_dims = cfg.num_spatial_dims
-        ics = jax.vmap(
-            lambda f, c: apply_spectral_cutoff(f, c, num_dims)
-        )(ics, cutoffs)
-
-        # Mix Fourier and Gaussian bump ICs (single-channel only).
-        # if ics.shape[1] == 1:
-        #     ics_gaussian = gaussian_bump_ic_batch(
-        #         bump_key,
-        #         n=n,
-        #         num_points=cfg.num_points,
-        #         domain_extent=cfg.domain_extent,
-        #         num_spatial_dims=cfg.num_spatial_dims,
-        #         max_bumps=cfg.gaussian_bump_max_bumps,
-        #     )  # (N, 1, *spatial)
-        #     mix_mask = jax.random.uniform(mix_key, (n,)) < cfg.gaussian_bump_prob
-        #     mask = mix_mask.reshape((n,) + (1,) * (ics.ndim - 1))
-        #     ics = jnp.where(mask, ics_gaussian, ics)
-
-        # Normalize every IC to max|field| = 1 so that amplitude_min/amplitude_max
-        # is the sole control over output amplitude. Without this, Fourier ICs
-        # (generated with max_one=False) can have large uncontrolled amplitudes
-        # that cause the PDE solver to produce NaN.
-        def _normalize(field):
-            max_abs = jnp.abs(field).max()
-            return field / jnp.maximum(max_abs, 1e-6)
-        ics = jax.vmap(_normalize)(ics)
-
-        # Per-sample amplitude scaling — restores amplitude variability
-        # that ic_max_one=True would suppress.
-        amp_shape = (n,) + (1,) * (ics.ndim - 1)
-        amplitudes = jax.random.uniform(
-            amp_key,
-            shape=amp_shape,
-            minval=cfg.amplitude_min,
-            maxval=cfg.amplitude_max,
-        )
-        ics = ics * amplitudes
 
         # --- Time integration (per-sample ν) ---
         # The stepper is constructed inside the vmapped function so that JAX
@@ -252,48 +202,27 @@ class BurgersGenerator:
             finals = jax.vmap(step_one)(ics, nus)  # (N, C, *spatial)
             trajectories = None
 
-        # --- Convert to PyTorch ---
-        ics_pt = jax_to_torch(ics, device=cfg.torch_device)
-        finals_pt = jax_to_torch(finals, device=cfg.torch_device)
-        nus_pt = jax_to_torch(nus, device=cfg.torch_device)  # (N,)
-
-        # Observation noise for inverse problems — corrupts the final-state
-        # field (the model input in the inverse direction) with additive
-        # Gaussian noise.
-        if problem == 'inverse' and cfg.obs_noise_std > 0.0:
-            finals_pt = finals_pt + cfg.obs_noise_std * torch.randn_like(finals_pt)
-
-        data = {
-            'initial': ics_pt,
-            'final': finals_pt,
-            'diffusivity': nus_pt,
-        }
-
-        if trajectories is not None:
-            data['trajectory'] = jax_to_torch(trajectories, device=cfg.torch_device)
-
-        # --- Metadata ---
-        stats = {
-            'initial': compute_normalization_stats(ics_pt),
-            'final': compute_normalization_stats(finals_pt),
-            'diffusivity': {
-                'min': float(nus_pt.min()),
-                'max': float(nus_pt.max()),
-                'mean': float(nus_pt.mean()),
-            },
-        }
-
-        metadata = {
-            'stats': stats,
-            'config': cfg.to_dict(),
-        }
-
-        spatial_str = 'x'.join([str(cfg.num_points)] * cfg.num_spatial_dims)
-        print(
-            f"Generated Burgers {cfg.num_spatial_dims}D dataset: "
-            f"{n} samples, {spatial_str} grid, "
-            f"{cfg.num_steps} steps (dt={cfg.dt}), "
-            f"ν ~ LogUniform({cfg.diffusivity_min:.0e}, {cfg.diffusivity_max:.0e})"
+        data = self.to_torch_data({
+            'initial': ics,
+            'final': finals,
+            'diffusivity': nus,
+            'trajectory': trajectories,
+        })
+        self.apply_inverse_observations(
+            data,
+            observation_key='final',
+            problem=problem,
+            n=n,
+            seed=s,
         )
 
-        return PDEDataset(data, problem=problem, metadata=metadata)
+        self.print_summary(
+            "Burgers",
+            n,
+            details=(
+                f"{cfg.num_steps} steps (dt={cfg.dt}), "
+                f"nu ~ LogUniform({cfg.diffusivity_min:.0e}, "
+                f"{cfg.diffusivity_max:.0e})"
+            ),
+        )
+        return self.wrap_dataset(data, problem=problem)

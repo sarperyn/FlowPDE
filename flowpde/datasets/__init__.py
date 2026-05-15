@@ -57,6 +57,10 @@ Requires Exponax: pip install exponax jax
 from .exponax import (
     PDEDataset,
     GenerationConfig,
+    ExponaxDatasetGenerator,
+    FourierFieldConfig,
+    sample_fourier_fields,
+    log_uniform,
     PoissonGenerator,
     PoissonConfig,
     BurgersGenerator,
@@ -81,8 +85,12 @@ __all__ = [
     'PDEDataset',
     'DarcyDataset',
     'GenerationConfig',
+    'ExponaxDatasetGenerator',
+    'FourierFieldConfig',
 
     # Utilities
+    'sample_fourier_fields',
+    'log_uniform',
     'jax_to_torch',
     'torch_to_jax',
 ]

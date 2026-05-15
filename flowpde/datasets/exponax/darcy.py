@@ -378,8 +378,12 @@ class DarcyDataset(Dataset):
         self.inverse_mode = inverse_mode
         self.metadata = metadata or {}
 
-        if self.problem != 'inverse' and self.inverse_mode != 'both':
-            raise ValueError("inverse_mode is only used when problem='inverse'")
+        if self.problem not in {'forward', 'inverse'}:
+            raise ValueError("problem must be 'forward' or 'inverse'")
+        if self.inverse_mode not in {'both', 'coefficient', 'source'}:
+            raise ValueError(
+                "inverse_mode must be 'both', 'coefficient', or 'source'"
+            )
 
     def __len__(self) -> int:
         return len(self.data['solution'])

@@ -27,6 +27,12 @@ Quick Start::
 """
 
 from .base import PDEDataset, GenerationConfig
+from .generator import (
+    ExponaxDatasetGenerator,
+    FourierFieldConfig,
+    log_uniform,
+    sample_fourier_fields,
+)
 from .poisson import PoissonGenerator, PoissonConfig
 from .burgers import BurgersGenerator, BurgersConfig
 from .darcy import DarcyGenerator, DarcyConfig, DarcyDataset
@@ -35,6 +41,10 @@ from .converters import jax_to_torch, torch_to_jax, compute_normalization_stats,
 __all__ = [
     'PDEDataset',
     'GenerationConfig',
+    'ExponaxDatasetGenerator',
+    'FourierFieldConfig',
+    'sample_fourier_fields',
+    'log_uniform',
     'PoissonGenerator',
     'PoissonConfig',
     'BurgersGenerator',
