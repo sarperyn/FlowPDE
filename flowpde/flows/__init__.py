@@ -1,24 +1,20 @@
 """
-Flow algorithms for FlowPDE.
+Flow objects for FlowPDE.
 
 This module provides flow-based generative models for solving PDEs:
 
 Main Classes:
-- FlowMatching: Unified flow matching (standard, rectified, OT-CFM)
-- ContinuousNormalizingFlow: Original CNF formulation
+- NeuralODEFlow: Conditional continuous-time flow dynamics
 
-Components (for advanced customization):
+Components:
 - PathInterpolant: Base class for interpolation paths
 - TimeSampler: Base class for time distributions
 - Coupling: Base class for coupling strategies
 
-Factory Functions:
-- create_flow_matching: Create FlowMatching with preset configurations
 """
 
 # Core flow classes
-from .flow_matching import FlowMatching, create_flow_matching
-from .cnf import ContinuousNormalizingFlow
+from .neural_ode import NeuralODEFlow, NeuralODELogProbVectorField
 
 # Components for advanced customization
 from .components import (
@@ -43,9 +39,8 @@ from .components import (
 
 __all__ = [
     # Main classes
-    'FlowMatching',
-    'ContinuousNormalizingFlow',
-    'create_flow_matching',
+    'NeuralODEFlow',
+    'NeuralODELogProbVectorField',
     
     # Path components
     'PathInterpolant',

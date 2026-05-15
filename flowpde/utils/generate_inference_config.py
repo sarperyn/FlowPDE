@@ -89,7 +89,7 @@ def create_inference_config(
     
     # Copy training config class (needed to identify trainer type)
     inference_config['training_config'] = {
-        'class': training_config.get('training_config', {}).get('class', 'src.trainers.flow_matching.FlowMatchingTrainer')
+        'class': training_config.get('training_config', {}).get('class', 'flowpde.trainers.Trainer')
     }
     
     # Copy dataset configuration

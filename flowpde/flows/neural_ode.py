@@ -1,5 +1,5 @@
 """
-Continuous Normalizing Flows (CNF) with FFJORD-style trace estimation.
+Neural ODE flows with optional likelihood evaluation.
 
 Continuous normalizing flows learn invertible transformations using neural ODEs
 and can compute exact log probabilities via the instantaneous change of variables.
@@ -8,15 +8,14 @@ and can compute exact log probabilities via the instantaneous change of variable
 import torch
 import torch.nn as nn
 from torch import Tensor
-from typing import Optional, Dict, Tuple, Callable, Union
-import warnings
+from typing import Dict, Optional, Tuple, Union
 
 from flowpde.core.base_flow import BaseFlow
 
 
-class CNFVectorField(nn.Module):
+class NeuralODELogProbVectorField(nn.Module):
     """
-    Vector field wrapper for CNF that includes log probability computation.
+    Vector field wrapper that includes log probability computation.
     
     Augments state with log probability and computes trace of Jacobian
     for the instantaneous change of variables formula.
@@ -36,7 +35,7 @@ class CNFVectorField(nn.Module):
         self.n_trace_samples = n_trace_samples
     
     def forward(self, t: Tensor, state: Tensor) -> Tensor:
-        """
+        r"""
         Compute augmented dynamics: $[dx/dt, d(\log p)/dt]$.
         
         Args:
@@ -80,7 +79,7 @@ class CNFVectorField(nn.Module):
         return dstate_dt
     
     def _compute_trace(self, v: Tensor, x: Tensor) -> Tensor:
-        """
+        r"""
         Compute trace of Jacobian $\partial v/\partial x$.
         
         Args:
@@ -118,7 +117,7 @@ class CNFVectorField(nn.Module):
         return trace
     
     def _hutchinson_trace(self, v: Tensor, x: Tensor) -> Tensor:
-        """
+        r"""
         Hutchinson trace estimator: $\mathbb{E}[\varepsilon^T (\partial v/\partial x) \varepsilon]$ where $\varepsilon \sim \mathcal{N}(0, I)$.
         
         Unbiased estimator that only requires one Jacobian-vector product.
@@ -149,23 +148,20 @@ class CNFVectorField(nn.Module):
         return torch.stack(traces).mean(dim=0)
 
 
-class ContinuousNormalizingFlow(BaseFlow):
-    """
-    Continuous Normalizing Flow (CNF) with exact log probability.
+class NeuralODEFlow(BaseFlow):
+    r"""
+    Conditional neural ODE flow with optional exact log probability.
     
-    CNF uses neural ODEs to learn invertible transformations and can compute
-    exact log probabilities via the instantaneous change of variables formula:
+    ``NeuralODEFlow`` represents the continuous-time flow/dynamics. Training
+    objectives live in ``flowpde.objectives``.
     
     $$\log p(x_1) = \log p(x_0) - \int_0^1 \text{tr}\left(\frac{\partial f}{\partial x}\right) dt$$
-    
-    This is more expensive than flow matching but provides density estimation.
     
     Args:
         model: Neural network that computes velocity $v(x, \text{condition}, t)$
         base_distribution: Base distribution for sampling ('gaussian' or 'uniform')
         trace_estimator: Method for trace computation ('exact' or 'hutchinson')
         n_trace_samples: Number of samples for Hutchinson estimator
-        regularization: Weight for regularization term (optional)
         target_key: Default batch key for target tensors (default: 'u')
         condition_key: Default batch key for condition tensors (default: 'f')
     
@@ -181,7 +177,6 @@ class ContinuousNormalizingFlow(BaseFlow):
         base_distribution: str = 'gaussian',
         trace_estimator: str = 'hutchinson',
         n_trace_samples: int = 1,
-        regularization: float = 0.0,
         target_key: str = "u",
         condition_key: str = "f",
     ):
@@ -193,7 +188,6 @@ class ContinuousNormalizingFlow(BaseFlow):
         self.base_distribution = base_distribution
         self.trace_estimator = trace_estimator
         self.n_trace_samples = n_trace_samples
-        self.regularization = regularization
         
         if trace_estimator not in ['exact', 'hutchinson']:
             raise ValueError(f"Unknown trace estimator: {trace_estimator}")
@@ -210,73 +204,6 @@ class ContinuousNormalizingFlow(BaseFlow):
             return torch.rand(*shape, device=device) * 2 - 1
         else:
             raise ValueError(f"Unknown base distribution: {self.base_distribution}")
-    
-    def compute_loss(
-        self,
-        batch: Dict[str, Tensor],
-        target_key: Optional[str] = None,
-        condition_key: Optional[str] = None,
-        **kwargs
-    ) -> Tensor:
-        """
-        Compute CNF loss via maximum likelihood.
-        
-        The loss is the negative log likelihood:
-        
-        $$\mathcal{L} = -\log p(x_1) = -\log p(x_0) + \int_0^1 \text{tr}\left(\frac{\partial f}{\partial x}\right) dt$$
-        
-        Args:
-            batch: Dictionary containing target and condition tensors.
-            target_key: Batch key for target data. Defaults to this flow's
-                configured target key ('u' by default).
-            condition_key: Batch key for conditioning data. Defaults to this
-                flow's configured condition key ('f' by default).
-        
-        Returns:
-            Negative log likelihood loss
-        """
-        # Extract data
-        x_1, condition = self._extract_target_condition(
-            batch,
-            target_key=target_key,
-            condition_key=condition_key,
-        )
-        self._target_dim = x_1.shape[1]
-        batch_size = x_1.shape[0]
-        
-        # Forward pass: transform data to base distribution
-        # We integrate backward in time from t=1 to t=0
-        x_0, delta_logp = self._integrate_ode(
-            x_1, condition, 
-            t_span=(1.0, 0.0),  # Backward
-            compute_logp=True
-        )
-        
-        # Compute log probability at base
-        if self.base_distribution == 'gaussian':
-            log_p0 = -0.5 * (x_0 ** 2).sum(dim=1) - 0.5 * x_0.shape[1] * torch.log(
-                torch.tensor(2 * 3.14159265, device=x_0.device)
-            )
-        elif self.base_distribution == 'uniform':
-            # Uniform on [-1, 1]
-            in_support = ((x_0 >= -1) & (x_0 <= 1)).all(dim=1).float()
-            log_p0 = torch.log(in_support / (2 ** x_0.shape[1]))
-        
-        # Log probability at data: log p(x_1) = log p(x_0) + delta_logp
-        log_px = log_p0 + delta_logp
-        
-        # Negative log likelihood loss
-        nll = -log_px.mean()
-        
-        # Optional: Add regularization on velocity field norm
-        if self.regularization > 0:
-            t_reg = torch.rand(batch_size, 1, device=self.model_device)
-            x_reg = x_1.detach()
-            v_reg = self.model(x_reg, condition, t_reg)
-            reg_loss = self.regularization * (v_reg ** 2).mean()
-            nll = nll + reg_loss
-        
-        return nll
     
     def _integrate_ode(
         self,
@@ -310,7 +237,7 @@ class ContinuousNormalizingFlow(BaseFlow):
             state = torch.cat([x, log_px], dim=1)
             
             # Create augmented vector field
-            vector_field = CNFVectorField(
+            vector_field = NeuralODELogProbVectorField(
                 self.model, condition,
                 trace_estimator=self.trace_estimator,
                 n_trace_samples=self.n_trace_samples
@@ -455,7 +382,7 @@ class ContinuousNormalizingFlow(BaseFlow):
             Latent samples in base distribution
         """
         if condition is None:
-            raise ValueError("CNF requires conditioning")
+            raise ValueError("NeuralODEFlow requires conditioning")
         
         x = x.flatten(start_dim=1).to(self.model_device)
         condition = condition.flatten(start_dim=1).to(self.model_device)
@@ -490,11 +417,10 @@ class ContinuousNormalizingFlow(BaseFlow):
     def get_config(self) -> Dict:
         """Return configuration dictionary."""
         return {
-            'flow_type': 'cnf',
+            'flow_type': 'neural_ode',
             'base_distribution': self.base_distribution,
             'trace_estimator': self.trace_estimator,
             'n_trace_samples': self.n_trace_samples,
-            'regularization': self.regularization,
             'target_key': self.target_key,
             'condition_key': self.condition_key,
             'model_type': self.model.__class__.__name__

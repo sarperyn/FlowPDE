@@ -1,7 +1,7 @@
 """
-Unified Flow Matching Implementation.
+Flow matching objective for neural ODE flows.
 
-This module provides a single, configurable FlowMatching class that encompasses:
+This module provides a single, configurable objective that encompasses:
 - Standard Flow Matching (Lipman et al., 2023)
 - Rectified Flow (Liu et al., 2023)
 - OT-Conditional Flow Matching (Tong et al., 2023)
@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch import nn, Tensor
 from typing import Dict, Optional, Tuple, Union, Any
 
-from flowpde.core.base_flow import BaseFlow
+from flowpde.flows import NeuralODEFlow
 from flowpde.flows.components import (
     PathInterpolant,
     TimeSampler,
@@ -25,12 +25,13 @@ from flowpde.flows.components import (
 )
 
 
-class FlowMatching(BaseFlow):
+class FlowMatchingObjective(nn.Module):
     """
-    Unified Flow Matching for Continuous Normalizing Flows.
+    Flow-matching objective for ``NeuralODEFlow``.
     
-    A flexible implementation that supports multiple flow matching variants
-    through composition of modular components:
+    This objective trains a neural ODE flow by supervised velocity regression
+    along interpolation paths instead of maximum likelihood. Multiple flow
+    matching variants are configured through modular components:
     
     - **Path**: How to interpolate between noise and data
     - **Time Sampler**: Distribution for sampling training times
@@ -40,21 +41,22 @@ class FlowMatching(BaseFlow):
     
     1. **Flow Matching** (default):
        ```
-       FlowMatching(model, path='linear', time_sampler='uniform')
+       FlowMatchingObjective(flow, path='linear', time_sampler='uniform')
        ```
     
     2. **Rectified Flow**:
        ```
-       FlowMatching(model, path='linear', time_sampler='logit_normal')
+       FlowMatchingObjective(flow, path='linear', time_sampler='logit_normal')
        ```
     
     3. **OT-Conditional Flow Matching**:
        ```
-       FlowMatching(model, path='ot_conditional', sigma=0.01)
+       FlowMatchingObjective(flow, path='ot_conditional', sigma=0.01)
        ```
     
     Args:
-        model: Neural network that predicts velocity v(x_t, condition, t)
+        flow: Neural ODE flow whose model predicts velocity
+            v(x_t, condition, t)
         path: Interpolation path ('linear', 'ot_conditional') or PathInterpolant
         time_sampler: Time distribution ('uniform', 'logit_normal') or TimeSampler
         coupling: Coupling strategy ('independent', 'minibatch_ot') or Coupling
@@ -70,19 +72,19 @@ class FlowMatching(BaseFlow):
     
     def __init__(
         self,
-        model: nn.Module,
+        flow: NeuralODEFlow,
         path: Union[str, PathInterpolant] = "linear",
         time_sampler: Union[str, TimeSampler] = "uniform",
         coupling: Union[str, Coupling] = "independent",
         sigma: float = 0.0,
-        target_key: str = "u",
-        condition_key: str = "f",
+        target_key: Optional[str] = None,
+        condition_key: Optional[str] = None,
     ):
-        super().__init__(
-            model,
-            target_key=target_key,
-            condition_key=condition_key,
-        )
+        super().__init__()
+        self.flow = flow
+        self.model = flow.model
+        self.target_key = target_key or flow.target_key
+        self.condition_key = condition_key or flow.condition_key
         
         # Initialize components
         # Pass sigma to OT path if needed
@@ -107,6 +109,10 @@ class FlowMatching(BaseFlow):
     ) -> Tensor:
         """Sample from base distribution (standard Gaussian)."""
         return torch.randn(*shape, device=device)
+
+    @property
+    def model_device(self) -> torch.device:
+        return self.flow.model_device
     
     def compute_loss(
         self,
@@ -138,12 +144,12 @@ class FlowMatching(BaseFlow):
             MSE loss tensor (scalar)
         """
         # Extract and prepare data
-        x_1, condition = self._extract_target_condition(
+        x_1, condition = self.flow._extract_target_condition(
             batch,
-            target_key=target_key,
-            condition_key=condition_key,
+            target_key=target_key or self.target_key,
+            condition_key=condition_key or self.condition_key,
         )
-        self._target_dim = x_1.shape[1]
+        self.flow._target_dim = x_1.shape[1]
         batch_size = x_1.shape[0]
         
         # Sample from base distribution (noise)
@@ -213,7 +219,7 @@ class FlowMatching(BaseFlow):
                 for size in target_shape:
                     dim *= size
         else:
-            dim = getattr(self, "_target_dim", condition_flat.shape[1])
+            dim = getattr(self.flow, "_target_dim", condition_flat.shape[1])
         
         # Sample initial noise if not provided
         if x_init is None:
@@ -258,10 +264,10 @@ class FlowMatching(BaseFlow):
         """
         self.model.eval()
         
-        x_1, condition = self._extract_target_condition(
+        x_1, condition = self.flow._extract_target_condition(
             batch,
-            target_key=target_key,
-            condition_key=condition_key,
+            target_key=target_key or self.target_key,
+            condition_key=condition_key or self.condition_key,
         )
         batch_size = x_1.shape[0]
         
@@ -289,35 +295,11 @@ class FlowMatching(BaseFlow):
             'straightness_score': 1.0 / (1.0 + vel_std),
         }
     
-    def forward_transform(
-        self, 
-        x: Tensor, 
-        condition: Optional[Tensor] = None, 
-        **kwargs
-    ) -> Tensor:
-        """
-        Forward transform (data → noise). Not typically used in flow matching.
-        
-        Would require solving ODE backward in time.
-        """
-        raise NotImplementedError(
-            "Forward transform requires backward ODE integration. "
-            "Use sample() for generation (noise → data)."
-        )
-    
-    def inverse_transform(
-        self, 
-        z: Tensor, 
-        condition: Optional[Tensor] = None, 
-        **kwargs
-    ) -> Tensor:
-        """Inverse transform (noise → data). Alias for sample()."""
-        return self.sample(condition=condition, x_init=z, **kwargs)
-    
     def get_config(self) -> Dict[str, Any]:
         """Return configuration dictionary for serialization."""
         return {
-            'flow_type': 'flow_matching',
+            'objective': 'flow_matching',
+            'flow': self.flow.get_config(),
             'path': self._path_name,
             'time_sampler': self._time_sampler_name,
             'coupling': self._coupling_name,
@@ -329,7 +311,7 @@ class FlowMatching(BaseFlow):
     
     def __repr__(self) -> str:
         return (
-            f"FlowMatching(\n"
+            f"FlowMatchingObjective(\n"
             f"  path={self._path_name},\n"
             f"  time_sampler={self._time_sampler_name},\n"
             f"  coupling={self._coupling_name},\n"
@@ -339,15 +321,15 @@ class FlowMatching(BaseFlow):
 
 
 def create_flow_matching(
-    model: nn.Module,
+    flow: NeuralODEFlow,
     variant: str = "standard",
     **kwargs
-) -> FlowMatching:
+) -> FlowMatchingObjective:
     """
-    Create FlowMatching with preset configurations.
+    Create a flow matching objective with preset configurations.
     
     Args:
-        model: Neural network for velocity prediction
+        flow: Neural ODE flow
         variant: Preset name:
             - 'standard': Standard flow matching (linear, uniform)
             - 'rectified': Rectified flow (linear, logit-normal)
@@ -355,7 +337,7 @@ def create_flow_matching(
         **kwargs: Override any default parameters
     
     Returns:
-        Configured FlowMatching instance
+        Configured flow matching objective
     """
     presets = {
         'standard': {
@@ -390,4 +372,4 @@ def create_flow_matching(
     config = presets[variant].copy()
     config.update(kwargs)
     
-    return FlowMatching(model, **config)
+    return FlowMatchingObjective(flow, **config)

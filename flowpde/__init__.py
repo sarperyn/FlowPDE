@@ -3,17 +3,19 @@ FlowPDE: A Backend Library for Normalizing Flows Solving Inverse Problems
 
 Quick Start:
     >>> import torch
-    >>> from flowpde.flows import FlowMatching
+    >>> from flowpde.flows import NeuralODEFlow
+    >>> from flowpde.objectives import FlowMatchingObjective
     >>> from flowpde.models import UNet
     >>> 
     >>> # Create model and flow
     >>> model = UNet(input_dim=64, base_ch=64)
-    >>> flow = FlowMatching(model)
+    >>> flow = NeuralODEFlow(model)
+    >>> objective = FlowMatchingObjective(flow)
     >>> 
     >>> # Train
     >>> optimizer = torch.optim.Adam(flow.parameters(), lr=1e-3)
     >>> for batch in trainloader:
-    >>>     loss = flow.compute_loss(batch)
+    >>>     loss = objective.compute_loss(batch)
     >>>     loss.backward()
     >>>     optimizer.step()
     >>> 
@@ -21,7 +23,8 @@ Quick Start:
     >>> samples = flow.sample(condition=f, n_steps=50)
 
 Architecture:
-    - flowpde.flows: Flow algorithms (FlowMatching, CNF)
+    - flowpde.flows: Neural ODE flow objects
+    - flowpde.objectives: Training objectives
     - flowpde.models: Neural networks (MLP, UNet, ConvNet, ResNet)
     - flowpde.solvers: ODE/SDE solvers
     - flowpde.inverse: Posterior sampling, uncertainty quantification
@@ -29,17 +32,27 @@ Architecture:
 """
 
 # Direct imports - Natural API (recommended)
-from flowpde.flows import FlowMatching, ContinuousNormalizingFlow, create_flow_matching
+from flowpde.flows import (
+    NeuralODEFlow,
+)
+from flowpde.objectives import (
+    FlowMatchingObjective,
+    MaximumLikelihoodObjective,
+    create_flow_matching,
+)
 from flowpde.models import MLP, UNet, ConvNet, ResNet
 from flowpde.solvers import ODEFlowSolver
-from flowpde.trainers import FlowTrainer, CNFTrainer
+from flowpde.trainers import Trainer
 
 # Public API
 __all__ = [
     
     # Flows (direct import - API)
-    'FlowMatching',
-    'ContinuousNormalizingFlow',
+    'NeuralODEFlow',
+
+    # Objectives
+    'FlowMatchingObjective',
+    'MaximumLikelihoodObjective',
     'create_flow_matching',
     
     # Models (direct import - API)
@@ -52,7 +65,6 @@ __all__ = [
     'ODEFlowSolver',
     
     # Trainers
-    'FlowTrainer',
-    'CNFTrainer',
+    'Trainer',
     
 ]

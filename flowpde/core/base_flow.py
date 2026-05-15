@@ -14,8 +14,9 @@ class BaseFlow(ABC, nn.Module):
     """
     Abstract base class for all normalizing flows.
     
-    This defines the common interface that all flow types (continuous normalizing flows,
-    flow matching, rectified flows, etc.) must implement.
+    This defines the common interface for invertible flow objects. Training
+    objectives such as flow matching or maximum likelihood live outside the
+    flow.
     
     Key Concepts:
     - Forward: Map from data distribution to base distribution (e.g., training)
@@ -119,27 +120,6 @@ class BaseFlow(ABC, nn.Module):
         Returns:
             x: Transformed tensor in data space
             log_det (optional): Log determinant of Jacobian for probability computation
-        """
-        raise NotImplementedError
-    
-    @abstractmethod
-    def compute_loss(
-        self,
-        batch: Dict[str, Tensor],
-        **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Compute training loss for the flow.
-        
-        Args:
-            batch: Dictionary containing training data
-                   Typically includes 'x' (data) and optionally 'condition'
-            **kwargs: Additional loss computation parameters
-            
-        Returns:
-            Dictionary containing:
-                - 'loss': Main training loss (scalar tensor)
-                - Additional metrics (optional)
         """
         raise NotImplementedError
     
