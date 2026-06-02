@@ -11,27 +11,18 @@ import jax.numpy as jnp
 import torch
 
 from .base import GenerationConfig, PDEDataset
-from .utilities import (
-    apply_spectral_cutoff,
-    compute_normalization_stats,
-    gaussian_bump_ic_batch,
-    jax_to_torch,
-)
+from .utilities import compute_normalization_stats, jax_to_torch
 
 
 @dataclass
 class FourierFieldConfig:
-    """Settings for the default Exponax random-field sampler."""
+    """Settings for smooth fixed-cutoff Exponax random fields."""
 
-    cutoff_min: int = 0
-    cutoff_max: int = 8
+    cutoff: int = 8
     max_one: bool = False
     amplitude_min: float = 1.0
     amplitude_max: float = 1.0
     normalize: bool = False
-    random_cutoff: bool = True
-    gaussian_bump_prob: float = 0.0
-    gaussian_bump_max_bumps: int = 5
 
 
 def log_uniform(key, n: int, min_value: float, max_value: float):
@@ -65,41 +56,17 @@ def sample_fourier_fields(
     """Generate a batch of Exponax random fields with common controls."""
     ic_gen = ex.ic.RandomTruncatedFourierSeries(
         num_spatial_dims=cfg.num_spatial_dims,
-        cutoff=field.cutoff_max,
+        cutoff=field.cutoff,
         max_one=field.max_one,
     )
 
-    key, amp_key, cutoff_key, bump_key, mix_key = jax.random.split(key, 5)
+    key, amp_key = jax.random.split(key, 2)
     fields = ex.build_ic_set(
         ic_gen,
         num_points=cfg.num_points,
         num_samples=n,
         key=key,
     )
-
-    if field.random_cutoff:
-        cutoffs = jax.random.randint(
-            cutoff_key,
-            shape=(n,),
-            minval=field.cutoff_min,
-            maxval=field.cutoff_max + 1,
-        )
-        fields = jax.vmap(
-            lambda f, c: apply_spectral_cutoff(f, c, cfg.num_spatial_dims)
-        )(fields, cutoffs)
-
-    if field.gaussian_bump_prob > 0.0 and fields.shape[1] == 1:
-        bump_fields = gaussian_bump_ic_batch(
-            bump_key,
-            n=n,
-            num_points=cfg.num_points,
-            domain_extent=cfg.domain_extent,
-            num_spatial_dims=cfg.num_spatial_dims,
-            max_bumps=field.gaussian_bump_max_bumps,
-        )
-        mix_mask = jax.random.uniform(mix_key, (n,)) < field.gaussian_bump_prob
-        mask = mix_mask.reshape((n,) + (1,) * (fields.ndim - 1))
-        fields = jnp.where(mask, bump_fields, fields)
 
     if field.normalize:
         fields = normalize_per_sample(fields)
@@ -134,6 +101,10 @@ class ExponaxDatasetGenerator:
         s = seed if seed is not None else cfg.seed
         return cfg, n, s
 
+    def validate_problem(self, problem: str) -> None:
+        if problem not in {"forward", "inverse"}:
+            raise ValueError("problem must be 'forward' or 'inverse'")
+
     def to_torch_data(self, arrays: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         return {
             key: jax_to_torch(value, device=self.config.torch_device)
@@ -141,7 +112,7 @@ class ExponaxDatasetGenerator:
             if value is not None
         }
 
-    def apply_inverse_observations(
+    def apply_observation_augmentation(
         self,
         data: Dict[str, torch.Tensor],
         *,
@@ -155,9 +126,14 @@ class ExponaxDatasetGenerator:
             return
 
         if cfg.obs_noise_std > 0.0:
+            noise_gen = torch.Generator().manual_seed(seed + 1)
+            noise = torch.randn(
+                data[observation_key].shape,
+                generator=noise_gen,
+                dtype=data[observation_key].dtype,
+            ).to(device=data[observation_key].device)
             data[observation_key] = (
-                data[observation_key]
-                + cfg.obs_noise_std * torch.randn_like(data[observation_key])
+                data[observation_key] + cfg.obs_noise_std * noise
             )
 
         if cfg.obs_mask_fraction < 1.0:

@@ -12,8 +12,8 @@ The Burgers equation:
 
     \frac{\partial u}{\partial t} + u \cdot \nabla u = \nu \nabla^2 u
 
-Random initial conditions are created via truncated Fourier series,
-then evolved forward in time using the spectral stepper.
+Smooth sine/cosine initial conditions are evolved forward in time using the
+spectral stepper.
 
 Example::
 
@@ -28,7 +28,7 @@ Example::
     dataset = generator.generate(num_samples=500, seed=0)
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Literal
 
 import jax
@@ -37,10 +37,9 @@ import exponax as ex
 from .base import GenerationConfig, PDEDataset
 from .generator import (
     ExponaxDatasetGenerator,
-    FourierFieldConfig,
     log_uniform,
-    sample_fourier_fields,
 )
+from .utilities import sample_sine_fields
 
 
 @dataclass
@@ -59,29 +58,8 @@ class BurgersConfig(GenerationConfig):
         convection_scale: Scaling of the nonlinear convection term.
         single_channel: If True, use a single-channel formulation
             (scalar Burgers) regardless of spatial dimension.
-        ic_cutoff_min: Minimum Fourier cutoff sampled per IC.
-            Lower values produce smoother, low-frequency initial conditions.
-        ic_cutoff_max: Maximum Fourier cutoff sampled per IC.
-            Higher values allow sharp, high-frequency initial conditions.  IC
-            generation always uses this as the upper band limit; each
-            sample is then masked down to its individually drawn cutoff
-            in spectral space, producing a mixture of smoothness levels.
-        ic_max_one: Normalize ICs so max |u| = 1. Disabled by default;
-            use amplitude_min/amplitude_max instead to preserve
-            per-sample amplitude variability.
-        amplitude_min: Lower bound of the uniform per-sample amplitude
-            multiplier applied after IC generation.
-        amplitude_max: Upper bound of the uniform per-sample amplitude
-            multiplier. Must be kept below the spectral CFL stability limit:
-            ``amplitude_max < 0.8 * domain_extent / (dt * num_points * π)``.
-            With the default settings (dt=0.001, num_points=160,
-            domain_extent=1.0) the safe upper bound is ~3.0.
-        gaussian_bump_prob: Probability that each IC is drawn from a
-            Gaussian-bump generator instead of the truncated Fourier series.
-            0.0 = always Fourier; 1.0 = always bumps; 0.5 (default) = equal
-            mixture.  Only applied to single-channel fields.
-        gaussian_bump_max_bumps: Maximum number of Gaussian bumps per IC
-            when using the bump generator (default: 5).
+        ic_num_terms: Number of sine/cosine terms per initial condition.
+        ic_max_mode: Largest integer wavenumber sampled per dimension.
         store_trajectory: If True, keep the full rollout trajectory
             in the dataset (key ``'trajectory'``).
     """
@@ -93,13 +71,8 @@ class BurgersConfig(GenerationConfig):
     diffusivity_max: float = 1e-2
     convection_scale: float = 1.0
     single_channel: bool = False
-    ic_cutoff_min: int = 3
-    ic_cutoff_max: int = 20
-    ic_max_one: bool = False
-    amplitude_min: float = 0.1
-    amplitude_max: float = 3.0
-    gaussian_bump_prob: float = 0.5
-    gaussian_bump_max_bumps: int = 5
+    ic_num_terms: int = 3
+    ic_max_mode: int = 4
     store_trajectory: bool = False
 
 
@@ -108,7 +81,7 @@ class BurgersGenerator(ExponaxDatasetGenerator):
     Generate Burgers equation datasets using Exponax.
 
     Workflow:
-        1. Create random ICs using ``exponax.ic.RandomTruncatedFourierSeries``
+        1. Create simple smooth sine/cosine initial conditions
         2. Step forward using ``exponax.stepper.Burgers`` (optionally via
            ``exponax.rollout`` for trajectories)
         3. Convert JAX arrays → PyTorch tensors
@@ -140,6 +113,7 @@ class BurgersGenerator(ExponaxDatasetGenerator):
             (and optionally ``'trajectory'``).
         """
         cfg, n, s = self.resolve_run(num_samples, seed)
+        self.validate_problem(problem)
 
         key = jax.random.PRNGKey(s)
         field_key, nu_key = jax.random.split(key, 2)
@@ -150,21 +124,14 @@ class BurgersGenerator(ExponaxDatasetGenerator):
             min_value=cfg.diffusivity_min,
             max_value=cfg.diffusivity_max,
         )
-        ics = sample_fourier_fields(
+        ics = sample_sine_fields(
             field_key,
             n=n,
-            cfg=cfg,
-            field=FourierFieldConfig(
-                cutoff_min=cfg.ic_cutoff_min,
-                cutoff_max=cfg.ic_cutoff_max,
-                max_one=cfg.ic_max_one,
-                amplitude_min=cfg.amplitude_min,
-                amplitude_max=cfg.amplitude_max,
-                gaussian_bump_prob=cfg.gaussian_bump_prob,
-                gaussian_bump_max_bumps=cfg.gaussian_bump_max_bumps,
-                normalize=True,
-                random_cutoff=True,
-            ),
+            num_spatial_dims=cfg.num_spatial_dims,
+            num_points=cfg.num_points,
+            domain_extent=cfg.domain_extent,
+            num_terms=cfg.ic_num_terms,
+            max_mode=cfg.ic_max_mode,
         )
 
         # --- Time integration (per-sample ν) ---
@@ -208,7 +175,7 @@ class BurgersGenerator(ExponaxDatasetGenerator):
             'diffusivity': nus,
             'trajectory': trajectories,
         })
-        self.apply_inverse_observations(
+        self.apply_observation_augmentation(
             data,
             observation_key='final',
             problem=problem,

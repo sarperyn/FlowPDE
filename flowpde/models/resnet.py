@@ -12,7 +12,6 @@ import torch
 from torch import nn, Tensor
 
 from .components import (
-    FourierTimeEmbedding,
     TimeMLPEmbedding,
     get_conv_layer,
     get_norm_layer,
@@ -44,6 +43,9 @@ class BasicBlock(nn.Module):
         stride: Convolution stride (default: 1)
         norm_type: Normalization type
         activation: Activation function name
+        use_film: Whether to apply FiLM conditioning inside the block
+        film_condition_dim: Conditioning vector dimension for FiLM
+        film_hidden_dim: Hidden dimension for FiLM parameter generation
     """
     expansion = 1  # BasicBlock doesn't expand channels
     
@@ -57,6 +59,9 @@ class BasicBlock(nn.Module):
         stride: int = 1,
         norm_type: str = "group",
         activation: str = "swish",
+        use_film: bool = False,
+        film_condition_dim: Optional[int] = None,
+        film_hidden_dim: Optional[int] = None,
     ):
         super().__init__()
         self.spatial_dim = spatial_dim
@@ -77,6 +82,18 @@ class BasicBlock(nn.Module):
         
         # Time embedding projection
         self.time_proj = nn.Linear(time_emb_dim, out_channels)
+
+        self.use_film = use_film
+        if self.use_film:
+            if film_condition_dim is None:
+                raise ValueError("film_condition_dim must be set when use_film is True")
+            self.film = FiLMConditioner(
+                condition_dim=film_condition_dim,
+                feature_dim=out_channels,
+                hidden_dim=film_hidden_dim,
+            )
+        else:
+            self.film = None
         
         # Skip connection (identity or projection)
         if stride != 1 or in_channels != out_channels:
@@ -87,12 +104,16 @@ class BasicBlock(nn.Module):
         else:
             self.skip = nn.Identity()
     
-    def forward(self, x: Tensor, t_emb: Tensor) -> Tensor:
+    def forward(self, x: Tensor, t_emb: Tensor, condition: Optional[Tensor] = None) -> Tensor:
         """
         Args:
             x: Input tensor
             t_emb: Time embedding (B, time_emb_dim)
+            condition: Optional conditioning tensor for FiLM
         """
+        if self.use_film and condition is None:
+            raise ValueError("condition must be provided when use_film is True")
+
         identity = self.skip(x)
         
         out = self.conv1(x)
@@ -101,6 +122,9 @@ class BasicBlock(nn.Module):
         
         # Add time conditioning
         out = out + expand_time_embedding(self.time_proj(t_emb), self.spatial_dim)
+
+        if self.film is not None:
+            out = self.film(out, condition)
         
         out = self.conv2(out)
         out = self.norm2(out)
@@ -124,6 +148,9 @@ class ResNetStage(nn.Module):
         stride: Stride for first block (for downsampling)
         norm_type: Normalization type
         activation: Activation function name
+        use_film: Whether to apply FiLM conditioning inside blocks
+        film_condition_dim: Conditioning vector dimension for FiLM
+        film_hidden_dim: Hidden dimension for FiLM parameter generation
     """
     def __init__(
         self,
@@ -135,6 +162,9 @@ class ResNetStage(nn.Module):
         stride: int = 1,
         norm_type: str = "group",
         activation: str = "swish",
+        use_film: bool = False,
+        film_condition_dim: Optional[int] = None,
+        film_hidden_dim: Optional[int] = None,
     ):
         super().__init__()
         
@@ -149,6 +179,9 @@ class ResNetStage(nn.Module):
             stride=stride,
             norm_type=norm_type,
             activation=activation,
+            use_film=use_film,
+            film_condition_dim=film_condition_dim,
+            film_hidden_dim=film_hidden_dim,
         ))
         
         # Remaining blocks maintain channels
@@ -161,13 +194,16 @@ class ResNetStage(nn.Module):
                 stride=1,
                 norm_type=norm_type,
                 activation=activation,
+                use_film=use_film,
+                film_condition_dim=film_condition_dim,
+                film_hidden_dim=film_hidden_dim,
             ))
         
         self.blocks = nn.ModuleList(blocks)
     
-    def forward(self, x: Tensor, t_emb: Tensor) -> Tensor:
+    def forward(self, x: Tensor, t_emb: Tensor, condition: Optional[Tensor] = None) -> Tensor:
         for block in self.blocks:
-            x = block(x, t_emb)
+            x = block(x, t_emb, condition)
         return x
 
 
@@ -232,15 +268,28 @@ class ResNet(nn.Module):
         self.return_spatial = return_spatial
         self.num_stages = len(blocks_per_stage)
         self.conditioner = conditioner if conditioner is not None else ConcatConditioner(dim=1)
+        self.use_film = isinstance(self.conditioner, FiLMConditioner)
+
+        film_condition_dim = None
+        film_hidden_dim = None
+        if self.use_film:
+            film_config = self.conditioner.get_config()
+            film_condition_dim = film_config.get("condition_dim")
+            film_hidden_dim = film_config.get("hidden_dim")
+            if film_condition_dim is None:
+                raise ValueError("FiLMConditioner requires condition_dim")
 
         # Time embedding
         time_emb_dim = base_channels * 4
         self.time_embed = TimeMLPEmbedding(dim=time_emb_dim, activation=activation)
 
         Conv = get_conv_layer(spatial_dim)
-        in_channels = _input_channels_for_conditioner(
-            self.conditioner, solution_channels, condition_channels
-        )
+        if self.use_film:
+            in_channels = solution_channels
+        else:
+            in_channels = _input_channels_for_conditioner(
+                self.conditioner, solution_channels, condition_channels
+            )
 
         # Stem: initial convolution
         self.stem = nn.Sequential(
@@ -271,6 +320,9 @@ class ResNet(nn.Module):
                 stride=stride,
                 norm_type=norm_type,
                 activation=activation,
+                use_film=self.use_film,
+                film_condition_dim=film_condition_dim,
+                film_hidden_dim=film_hidden_dim,
             ))
             
             current_channels = out_channels
@@ -336,13 +388,14 @@ class ResNet(nn.Module):
                 return tensor.view(B, channels, self.spatial_size, self.spatial_size)
         return tensor
     
-    def forward(self, x: Tensor, f: Tensor, t: Tensor) -> Tensor:
+    def forward(self, x: Tensor, f: Optional[Tensor], t: Tensor) -> Tensor:
         """
         Predict velocity field for flow matching.
         
         Args:
             x: State x_t, shape (B, C, *spatial) or flattened (B, C*spatial)
-            f: Condition, shape (B, C', *spatial) or flattened (B, C'*spatial)
+            f: Condition, shape (B, C', *spatial) or flattened (B, C'*spatial).
+               Optional when using NullConditioner.
             t: Time t ∈ [0, 1], shape (B,) or (B, 1)
         
         Returns:
@@ -350,7 +403,15 @@ class ResNet(nn.Module):
         """
         # Reshape inputs
         x = self._reshape_input(x, self.solution_channels)
-        f = self._reshape_input(f, self.condition_channels)
+        if self.use_film:
+            if f is None:
+                raise ValueError("f must be provided when using FiLMConditioner")
+        elif isinstance(self.conditioner, NullConditioner):
+            f = None
+        else:
+            if f is None:
+                raise ValueError("f must be provided when conditioner is not NullConditioner")
+            f = self._reshape_input(f, self.condition_channels)
         
         B = x.shape[0]
         
@@ -358,14 +419,17 @@ class ResNet(nn.Module):
         t_emb = self.time_embed(t)
         
         # Apply conditioner (concat by default)
-        h = self.conditioner(x, f)
+        if self.use_film:
+            h = x
+        else:
+            h = self.conditioner(x, f)
 
         # Stem
         h = self.stem(h)
         
         # Apply stages
         for stage in self.stages:
-            h = stage(h, t_emb)
+            h = stage(h, t_emb, f)
         
         # Output projection
         h = self.output_norm(h)
@@ -390,10 +454,6 @@ class ResNet(nn.Module):
             f"condition_channels={self.condition_channels}"
         )
 
-
-# =============================================================================
-# Convenience Factory Functions
-# =============================================================================
 
 def resnet8(spatial_dim: int, spatial_size: int, **kwargs) -> ResNet:
     """ResNet-8: Lightweight model for small grids."""

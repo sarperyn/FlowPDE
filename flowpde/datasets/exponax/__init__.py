@@ -10,6 +10,10 @@ Main Components:
     - ``DarcyDataset``: PyTorch Dataset for Darcy-flow data
     - ``jax_to_torch`` / ``torch_to_jax``: array conversion utilities
 
+Forward/inverse direction is controlled directly by each generator's
+``problem`` argument. Returned samples always expose ``'input'`` and
+``'target'`` keys for training.
+
 Quick Start::
 
     from flowpde.datasets.exponax import PoissonGenerator, DarcyGenerator
@@ -40,8 +44,7 @@ from .utilities import (
     jax_to_torch,
     torch_to_jax,
     compute_normalization_stats,
-    apply_spectral_cutoff,
-    gaussian_bump_ic_batch,
+    sample_sine_fields,
 )
 
 __all__ = [
@@ -61,6 +64,5 @@ __all__ = [
     'jax_to_torch',
     'torch_to_jax',
     'compute_normalization_stats',
-    'apply_spectral_cutoff',
-    'gaussian_bump_ic_batch',
+    'sample_sine_fields',
 ]

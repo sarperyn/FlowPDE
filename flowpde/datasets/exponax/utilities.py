@@ -3,7 +3,7 @@ Exponax Dataset Utilities
 =========================
 
 Utility helpers for Exponax-backed datasets, including JAX↔PyTorch
-conversions, normalization stats, spectral filtering, and IC synthesis.
+conversions and normalization stats.
 """
 
 import numpy as np
@@ -79,130 +79,64 @@ def compute_normalization_stats(tensor: torch.Tensor) -> dict:
     }
 
 
-def apply_spectral_cutoff(field, cutoff, num_spatial_dims: int):
-    """
-    Zero out Fourier modes above ``cutoff`` in all spatial dimensions.
-
-    Generates a spatially filtered version of *field* by masking every
-    mode with |k| > cutoff along each spatial axis.  Safe to use inside
-    ``jax.vmap`` when *cutoff* is a per-sample traced scalar.
-
-    The last spatial axis uses a real FFT (rfft), so its frequencies are
-    non-negative (0 … n//2).  All preceding spatial axes use full FFTs
-    with |k| = |round(freq * n)|.
-
-    Args:
-        field: JAX array of shape ``(C, *spatial)``.
-        cutoff: Integer cutoff threshold; modes with |k| > cutoff are
-                zeroed.  May be a JAX-traced scalar (e.g. from vmap).
-        num_spatial_dims: Number of trailing spatial dimensions in
-                *field* (1 for 1-D problems, 2 for 2-D, etc.).
-
-    Returns:
-        Filtered JAX array with the same dtype and shape as *field*.
-    """
-    import jax.numpy as jnp
-
-    spatial_axes = tuple(range(1, 1 + num_spatial_dims))
-    spatial_shape = field.shape[1:1 + num_spatial_dims]
-
-    # Forward real FFT along all spatial axes simultaneously
-    field_hat = jnp.fft.rfftn(field, axes=spatial_axes)
-
-    # Build one boolean mask per spatial axis, then AND them together
-    masks = []
-    for i, (ax, n_pts) in enumerate(zip(spatial_axes, spatial_shape)):
-        if i < num_spatial_dims - 1:
-            # Full FFT axis: frequencies 0, 1, …, n//2, -(n//2-1), …, -1
-            freqs = jnp.abs(jnp.fft.fftfreq(n_pts) * n_pts)
-        else:
-            # Real FFT axis: non-negative frequencies 0, 1, …, n//2
-            freqs = jnp.arange(n_pts // 2 + 1, dtype=jnp.float32)
-
-        reshape = [1] * field_hat.ndim
-        reshape[ax] = freqs.shape[0]
-        masks.append((freqs <= cutoff).reshape(reshape))
-
-    mask = masks[0]
-    for m in masks[1:]:
-        mask = mask & m
-
-    return jnp.fft.irfftn(field_hat * mask, s=spatial_shape, axes=spatial_axes).real
-
-
-def gaussian_bump_ic_batch(
+def sample_sine_fields(
     key,
+    *,
     n: int,
+    num_spatial_dims: int,
     num_points: int,
     domain_extent: float,
-    num_spatial_dims: int,
-    max_bumps: int = 5,
+    num_terms: int,
+    max_mode: int,
 ):
-    """
-    Generate a batch of random Gaussian-bump fields.
+    """Generate simple smooth sine fields with random modes, weights, and phases."""
+    if num_terms < 1:
+        raise ValueError("num_terms must be at least 1")
+    if max_mode < 1:
+        raise ValueError("max_mode must be at least 1")
 
-    Each sample is a superposition of ``k ~ Uniform{1, max_bumps}``
-    randomly placed, randomly sized, and randomly signed isotropic Gaussian
-    bumps on a uniform spatial grid.  The result is normalized to
-    ``max|field| = 1`` so that the caller's amplitude scaling is the sole
-    amplitude control.  Safe to use with ``jax.vmap``.
-
-    Args:
-        key: JAX PRNG key.
-        n: Number of samples to generate.
-        num_points: Grid resolution per spatial dimension.
-        domain_extent: Physical size of the periodic domain.
-        num_spatial_dims: Number of spatial dimensions (1, 2, or 3).
-        max_bumps: Maximum number of Gaussian bumps per sample.
-
-    Returns:
-        JAX array of shape ``(n, 1, *([num_points] * num_spatial_dims))``.
-    """
     import jax
     import jax.numpy as jnp
 
-    def single(k):
-        k1, k2, k3, k4 = jax.random.split(k, 4)
+    coords = [
+        jnp.linspace(0.0, domain_extent, num_points, endpoint=False)
+        for _ in range(num_spatial_dims)
+    ]
+    grids = jnp.meshgrid(*coords, indexing='ij') if num_spatial_dims > 1 else coords
+    stacked_grid = jnp.stack(grids, axis=0)
 
-        # Number of active bumps encoded as a static-shape mask
-        n_bumps = jax.random.randint(k1, (), minval=1, maxval=max_bumps + 1)
-        active = (jnp.arange(max_bumps) < n_bumps).astype(jnp.float32)  # (B,)
+    _, mode_key, coeff_key, phase_key = jax.random.split(key, 4)
+    modes = jax.random.randint(
+        mode_key,
+        shape=(n, num_terms, num_spatial_dims),
+        minval=1,
+        maxval=max_mode + 1,
+    )
+    coeffs = jax.random.normal(coeff_key, shape=(n, num_terms))
+    phases = jax.random.uniform(
+        phase_key,
+        shape=(n, num_terms),
+        minval=0.0,
+        maxval=2.0 * jnp.pi,
+    )
 
-        # Random bump parameters
-        centers = jax.random.uniform(
-            k2,
-            (max_bumps, num_spatial_dims),
-            minval=0.1 * domain_extent,
-            maxval=0.9 * domain_extent,
-        )  # (B, D)
-        widths = jax.random.uniform(
-            k3,
-            (max_bumps,),
-            minval=0.05 * domain_extent,
-            maxval=0.25 * domain_extent,
-        )  # (B,)
-        signs = jnp.where(
-            jax.random.uniform(k4, (max_bumps,)) > 0.5, 1.0, -1.0
-        )  # (B,)
-
-        # Coordinate arrays for the spatial grid
-        coords = [
-            jnp.linspace(0.0, domain_extent, num_points, endpoint=False)
-            for _ in range(num_spatial_dims)
-        ]
-        grids = jnp.meshgrid(*coords, indexing='ij') if num_spatial_dims > 1 else coords
-
-        # Accumulate bumps (loop unrolled at trace time)
+    def sample_one(sample_modes, sample_coeffs, sample_phases):
         field = jnp.zeros([num_points] * num_spatial_dims)
-        for b in range(max_bumps):
-            dist_sq = jnp.zeros_like(grids[0])
-            for d in range(num_spatial_dims):
-                dist_sq = dist_sq + ((grids[d] - centers[b, d]) / widths[b]) ** 2
-            field = field + signs[b] * jnp.exp(-0.5 * dist_sq) * active[b]
+        for i in range(num_terms):
+            angle = (
+                2.0
+                * jnp.pi
+                * (
+                    sample_modes[i].reshape(
+                        (num_spatial_dims,) + (1,) * num_spatial_dims
+                    )
+                    * stacked_grid
+                ).sum(axis=0)
+                / domain_extent
+                + sample_phases[i]
+            )
+            field = field + sample_coeffs[i] * jnp.sin(angle)
+        field = field / jnp.sqrt(float(num_terms))
+        return field[jnp.newaxis]
 
-        # Normalize to max|field| = 1
-        field = field / jnp.maximum(jnp.abs(field).max(), 1e-6)
-        return field[jnp.newaxis]  # (1, *spatial)
-
-    sample_keys = jax.random.split(key, n)
-    return jax.vmap(single)(sample_keys)  # (n, 1, *spatial)
+    return jax.vmap(sample_one)(modes, coeffs, phases)

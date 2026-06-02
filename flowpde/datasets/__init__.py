@@ -3,7 +3,9 @@ Dataset Modules for FlowPDE
 ============================
 
 Provides PyTorch Dataset classes for PDE problems using Exponax
-for direct spectral PDE data generation.
+for direct PDE data generation. All datasets return ``sample['input']`` and
+``sample['target']``; choosing ``problem='inverse'`` swaps the learning
+direction instead of requiring a wrapper.
 
 Main Components:
 ----------------
@@ -39,13 +41,7 @@ Burgers Example:
 ----------------
     from flowpde.datasets import BurgersGenerator
 
-    gen = BurgersGenerator(
-        num_spatial_dims=1,
-        num_points=160,
-        diffusivity=0.0003,
-        dt=0.001,
-        num_steps=50,
-    )
+    gen = BurgersGenerator(num_spatial_dims=1, num_points=160, num_steps=50)
     dataset = gen.generate(num_samples=500, seed=0)
 
 Dependencies:
@@ -70,6 +66,7 @@ from .exponax import (
     DarcyDataset,
     jax_to_torch,
     torch_to_jax,
+    sample_sine_fields,
 )
 
 __all__ = [
@@ -93,4 +90,5 @@ __all__ = [
     'log_uniform',
     'jax_to_torch',
     'torch_to_jax',
+    'sample_sine_fields',
 ]

@@ -33,9 +33,7 @@ Darcy-flow benchmark used in FNO, DeepONet, and related literature.
     the GRF formulation used in the original FNO Darcy benchmark.
 
 **f generation**
-    Same Fourier-series + Gaussian-bump mixture used by ``PoissonGenerator``,
-    giving a wide distribution of smooth, localised, and oscillatory source
-    terms in every batch.
+    Smooth fixed-cutoff Fourier-series source fields.
 
 Example::
 
@@ -55,14 +53,12 @@ from torch.utils.data import Dataset
 
 import jax
 import jax.numpy as jnp
-import exponax as ex
 
 from .base import GenerationConfig
-from .utilities import (
-    jax_to_torch,
-    compute_normalization_stats,
-    apply_spectral_cutoff,
-    gaussian_bump_ic_batch,
+from .generator import (
+    ExponaxDatasetGenerator,
+    FourierFieldConfig,
+    sample_fourier_fields,
 )
 
 
@@ -296,14 +292,9 @@ class DarcyConfig(GenerationConfig):
             low-permeability regions.
         kappa_min: Hard lower bound on :math:`\kappa`
             (positivity / ellipticity floor).
-        f_cutoff_min: Minimum spectral cutoff for the random source term.
-        f_cutoff_max: Maximum spectral cutoff for the random source term.
+        f_cutoff: Fourier cutoff for the random source term.
         f_amplitude_min: Minimum per-sample amplitude scaling for f.
         f_amplitude_max: Maximum per-sample amplitude scaling for f.
-        f_gaussian_bump_prob: Probability of drawing f from the
-            Gaussian-bump generator rather than Fourier series (0.5 = equal
-            mixture).
-        f_gaussian_bump_max_bumps: Maximum number of bumps per source sample.
         cg_steps: Fixed number of conjugate-gradient iterations used to solve
             the linear system.  500 is conservative for a 64×64 grid; reduce
             to ~100 for fast prototyping.
@@ -319,12 +310,9 @@ class DarcyConfig(GenerationConfig):
     kappa_min:   float = 0.1
 
     # f field
-    f_cutoff_min:             int   = 3
-    f_cutoff_max:             int   = 20
-    f_amplitude_min:          float = 0.1
-    f_amplitude_max:          float = 5.0
-    f_gaussian_bump_prob:     float = 0.5
-    f_gaussian_bump_max_bumps: int  = 5
+    f_cutoff:        int   = 8
+    f_amplitude_min: float = 0.1
+    f_amplitude_max: float = 5.0
 
     # Solver
     cg_steps: int = 500
@@ -397,7 +385,7 @@ class DarcyDataset(Dataset):
             inp    = torch.cat([kappa, f], dim=0)   # (2, *spatial)
             target = u
         elif self.inverse_mode == 'both':
-            # Recover both PDE inputs from the observed solution. #HARDEST
+            # Recover both PDE inputs from the observed solution.
             inp    = u
             target = torch.cat([kappa, f], dim=0)   # (2, *spatial)
         elif self.inverse_mode == 'coefficient':
@@ -437,14 +425,14 @@ class DarcyDataset(Dataset):
 
 
 
-class DarcyGenerator:
+class DarcyGenerator(ExponaxDatasetGenerator):
     """
     Generate Darcy-flow / variable-coefficient Poisson datasets.
 
     Workflow:
 
         1. Draw per-sample log-normal :math:`\kappa` fields from a GRF.
-        2. Draw per-sample :math:`f` fields (Fourier series + Gaussian-bump mixture).
+        2. Draw per-sample smooth Fourier source fields.
         3. Solve :math:`-\\nabla\\cdot(\kappa\\,\\nabla u)=f` via FD + fixed-step CG for each sample.
         4. Optionally apply additive noise and/or spatial masking to the
            solution field (for inverse-problem datasets).
@@ -461,10 +449,8 @@ class DarcyGenerator:
         test  = gen.generate(num_samples=200,  seed=1)
     """
 
-    def __init__(self, config: Optional[DarcyConfig] = None, **kwargs):
-        if config is None:
-            config = DarcyConfig(**kwargs)
-        self.config = config
+    config_cls = DarcyConfig
+    dataset_cls = DarcyDataset
 
     def generate(
         self,
@@ -487,9 +473,8 @@ class DarcyGenerator:
         Returns:
             A ``DarcyDataset``.
         """
-        cfg = self.config
-        n   = num_samples or cfg.num_samples
-        s   = seed if seed is not None else cfg.seed
+        cfg, n, s = self.resolve_run(num_samples, seed)
+        self.validate_problem(problem)
         N   = cfg.num_points
         d   = cfg.num_spatial_dims
         L   = cfg.domain_extent
@@ -504,9 +489,7 @@ class DarcyGenerator:
 
         # Split all keys upfront for full reproducibility
         key = jax.random.PRNGKey(s)
-        key, kappa_key, f_key, f_cut_key, f_amp_key, f_bump_key, f_mix_key = (
-            jax.random.split(key, 7)
-        )
+        key, kappa_key, f_key = jax.random.split(key, 3)
 
         # ── 1. κ fields: per-sample log-normal GRF ────────────────────────
         kappa_sample_keys = jax.random.split(kappa_key, n)
@@ -523,45 +506,18 @@ class DarcyGenerator:
 
         kappas = jax.vmap(make_kappa)(kappa_sample_keys)   # (n, 1, *spatial)
 
-        # ── 2. f fields: Fourier series + Gaussian-bump mixture ───────────
-        ic_gen = ex.ic.RandomTruncatedFourierSeries(
-            num_spatial_dims=d,
-            cutoff=cfg.f_cutoff_max,
-            max_one=False,
+        # ── 2. f fields: smooth fixed-cutoff Fourier series ───────────────
+        sources = sample_fourier_fields(
+            f_key,
+            n=n,
+            cfg=cfg,
+            field=FourierFieldConfig(
+                cutoff=cfg.f_cutoff,
+                amplitude_min=cfg.f_amplitude_min,
+                amplitude_max=cfg.f_amplitude_max,
+                normalize=True,
+            ),
         )
-        sources = ex.build_ic_set(ic_gen, num_points=N, num_samples=n, key=f_key)
-        # (n, 1, *spatial)
-
-        # Per-sample random spectral cutoff
-        f_cutoffs = jax.random.randint(
-            f_cut_key, (n,), minval=cfg.f_cutoff_min, maxval=cfg.f_cutoff_max + 1
-        )
-        sources = jax.vmap(
-            lambda f, c: apply_spectral_cutoff(f, c, d)
-        )(sources, f_cutoffs)
-
-        # Gaussian bump mixing (single-channel only)
-        if sources.shape[1] == 1:
-            sources_bumps = gaussian_bump_ic_batch(
-                f_bump_key,
-                n=n,
-                num_points=N,
-                domain_extent=L,
-                num_spatial_dims=d,
-                max_bumps=cfg.f_gaussian_bump_max_bumps,
-            )  # (n, 1, *spatial)
-            mix_mask = jax.random.uniform(f_mix_key, (n,)) < cfg.f_gaussian_bump_prob
-            mask     = mix_mask.reshape((n,) + (1,) * (sources.ndim - 1))
-            sources  = jnp.where(mask, sources_bumps, sources)
-
-        # Per-sample amplitude scaling
-        amp_shape = (n,) + (1,) * (sources.ndim - 1)
-        f_amps    = jax.random.uniform(
-            f_amp_key, amp_shape,
-            minval=cfg.f_amplitude_min,
-            maxval=cfg.f_amplitude_max,
-        )
-        sources = sources * f_amps
 
         # ── 3. Solve for each sample ───────────────────────
         if d == 1:
@@ -573,46 +529,19 @@ class DarcyGenerator:
 
         solutions = jax.vmap(solve_one)(kappas, sources)   # (n, 1, *spatial)
 
-        # ── 4. Convert to PyTorch ─────────────────────────────────────────
-        kappas_pt  = jax_to_torch(kappas,    device=cfg.torch_device)
-        sources_pt = jax_to_torch(sources,   device=cfg.torch_device)
-        sols_pt    = jax_to_torch(solutions, device=cfg.torch_device)
-
-        # Inverse-problem augmentations: noise + spatial masking
-        if problem == 'inverse':
-            if cfg.obs_noise_std > 0.0:
-                sols_pt = sols_pt + cfg.obs_noise_std * torch.randn_like(sols_pt)
-            if cfg.obs_mask_fraction < 1.0:
-                spatial_shape = (N,) * d
-                mask_gen  = torch.Generator().manual_seed(s)
-                obs_mask  = (
-                    torch.rand((n, 1) + spatial_shape, generator=mask_gen)
-                    < cfg.obs_mask_fraction
-                ).float().to(device=cfg.torch_device)
-                sols_pt  = sols_pt * obs_mask
-            else:
-                obs_mask = None
-        else:
-            obs_mask = None
-
-        # ── 5. Assemble dataset ───────────────────────────────────────────
-        data = {
-            'kappa':    kappas_pt,
-            'source':   sources_pt,
-            'solution': sols_pt,
-        }
-        if obs_mask is not None:
-            data['obs_mask'] = obs_mask
-
-        stats = {
-            'kappa':    compute_normalization_stats(kappas_pt),
-            'source':   compute_normalization_stats(sources_pt),
-            'solution': compute_normalization_stats(sols_pt),
-        }
-        metadata = {
-            'stats':  stats,
-            'config': cfg.to_dict(),
-        }
+        # ── 4. Convert, optionally augment inverse observations, and wrap ──
+        data = self.to_torch_data({
+            'kappa': kappas,
+            'source': sources,
+            'solution': solutions,
+        })
+        self.apply_observation_augmentation(
+            data,
+            observation_key='solution',
+            problem=problem,
+            n=n,
+            seed=s,
+        )
 
         spatial_str = 'x'.join([str(N)] * d)
         print(
@@ -621,9 +550,8 @@ class DarcyGenerator:
             f"scale={cfg.kappa_scale}), CG steps={cfg.cg_steps}"
         )
 
-        return DarcyDataset(
+        return self.wrap_dataset(
             data,
             problem=problem,
             inverse_mode=inverse_mode,
-            metadata=metadata,
         )

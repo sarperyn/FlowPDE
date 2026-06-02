@@ -8,10 +8,8 @@ Exponax solvers and IC generators.
 
 import torch
 from torch.utils.data import Dataset
-from typing import Dict, Any, Optional, Literal, Union, Tuple
+from typing import Dict, Any, Optional, Literal
 from dataclasses import dataclass, asdict
-
-from .utilities import compute_normalization_stats
 
 
 @dataclass
@@ -26,10 +24,8 @@ class GenerationConfig:
         num_samples: Number of samples to generate
         seed: Random seed for reproducibility
         torch_device: Target PyTorch device for converted tensors
-        obs_noise_std: Standard deviation of additive Gaussian noise applied
-            to the observation field when generating inverse-problem datasets
-            (problem='inverse').  Set to 0.0 (default) to disable.  For
-            Poisson this corrupts the solution; for Burgers, the final state.
+        obs_noise_std: Optional additive Gaussian noise applied to the
+            inverse-problem observation field.  Set to 0.0 to disable.
         obs_mask_fraction: Fraction of spatial grid points that are *observed*
             in inverse-problem datasets.  Each sample independently draws a
             random Bernoulli mask with this probability; unobserved locations
@@ -37,7 +33,7 @@ class GenerationConfig:
             (1 = observed, 0 = unobserved) is stored as ``'obs_mask'`` in the
             dataset and returned by ``__getitem__``.  1.0 (default) = full
             observations; 0.1 = only 10 % of points visible.
-            Has no effect when ``problem='forward'``.
+            Has no effect when ``problem='forward'`` or when left at 1.0.
     """
     num_spatial_dims: int = 2
     num_points: int = 64
@@ -89,6 +85,9 @@ class PDEDataset(Dataset):
                      'inverse' reverses the mapping.
             metadata: Optional dict with 'stats', 'config', etc.
         """
+        if problem not in {'forward', 'inverse'}:
+            raise ValueError("problem must be 'forward' or 'inverse'")
+
         self.data = data
         self.problem = problem
         self.metadata = metadata or {}

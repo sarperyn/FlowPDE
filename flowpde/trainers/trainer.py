@@ -75,7 +75,7 @@ class Trainer:
         epochs: int,
         print_stats_interval: int,
         save_dir: str,
-        save_interval: int = 30000,
+        save_interval: int,
     ) -> None:
         self.objective.train()
         epoch_losses = []
