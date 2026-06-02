@@ -11,7 +11,7 @@ from torch.utils.data import Dataset
 from typing import Dict, Any, Optional, Literal, Union, Tuple
 from dataclasses import dataclass, asdict
 
-from .converters import compute_normalization_stats
+from .utilities import compute_normalization_stats
 
 
 @dataclass

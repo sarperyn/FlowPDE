@@ -36,7 +36,13 @@ from .generator import (
 from .poisson import PoissonGenerator, PoissonConfig
 from .burgers import BurgersGenerator, BurgersConfig
 from .darcy import DarcyGenerator, DarcyConfig, DarcyDataset
-from .converters import jax_to_torch, torch_to_jax, compute_normalization_stats, apply_spectral_cutoff, gaussian_bump_ic_batch
+from .utilities import (
+    jax_to_torch,
+    torch_to_jax,
+    compute_normalization_stats,
+    apply_spectral_cutoff,
+    gaussian_bump_ic_batch,
+)
 
 __all__ = [
     'PDEDataset',

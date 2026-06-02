@@ -58,7 +58,7 @@ import jax.numpy as jnp
 import exponax as ex
 
 from .base import GenerationConfig
-from .converters import (
+from .utilities import (
     jax_to_torch,
     compute_normalization_stats,
     apply_spectral_cutoff,

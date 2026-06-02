@@ -1,9 +1,9 @@
 """
-JAX ↔ PyTorch Conversion Utilities
-===================================
+Exponax Dataset Utilities
+=========================
 
-Provides efficient conversion between JAX arrays and PyTorch tensors,
-handling device placement and dtype conversion.
+Utility helpers for Exponax-backed datasets, including JAX↔PyTorch
+conversions, normalization stats, spectral filtering, and IC synthesis.
 """
 
 import numpy as np

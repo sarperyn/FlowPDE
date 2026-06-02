@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import torch
 
 from .base import GenerationConfig, PDEDataset
-from .converters import (
+from .utilities import (
     apply_spectral_cutoff,
     compute_normalization_stats,
     gaussian_bump_ic_batch,
