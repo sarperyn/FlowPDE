@@ -8,8 +8,10 @@ Exponax solvers and IC generators.
 
 import torch
 from torch.utils.data import Dataset
-from typing import Dict, Any, Optional, Literal
+from typing import Dict, Any, List, Optional, Literal
 from dataclasses import dataclass, asdict
+
+from ..normalization import FieldNormalizer
 
 
 @dataclass
@@ -75,6 +77,7 @@ class PDEDataset(Dataset):
         data: Dict[str, torch.Tensor],
         problem: Literal['forward', 'inverse'] = 'forward',
         metadata: Optional[Dict[str, Any]] = None,
+        normalizer: Optional[FieldNormalizer] = None,
     ):
         """
         Args:
@@ -84,6 +87,9 @@ class PDEDataset(Dataset):
             problem: 'forward' maps natural data -> solution;
                      'inverse' reverses the mapping.
             metadata: Optional dict with 'stats', 'config', etc.
+            normalizer: Optional ``FieldNormalizer`` applied to each PDE
+                field on access.  Fit it on the training split and share
+                the same instance with validation/test splits.
         """
         if problem not in {'forward', 'inverse'}:
             raise ValueError("problem must be 'forward' or 'inverse'")
@@ -93,6 +99,7 @@ class PDEDataset(Dataset):
         self.metadata = metadata or {}
         self.stats = self.metadata.get('stats', {})
         self.config = self.metadata.get('config', {})
+        self.normalizer = normalizer
 
         self._setup_keys()
 
@@ -123,19 +130,51 @@ class PDEDataset(Dataset):
                 "Expected ('source', 'solution') or ('initial', 'final')."
             )
 
+    # Normalization
+    def set_normalizer(self, normalizer: Optional[FieldNormalizer]) -> 'PDEDataset':
+        """
+        Attach (or clear) a field normalizer applied on every access.
+
+        Pass the *training* split's normalizer to validation and test splits
+        so all data is standardized with the same statistics.
+
+        Returns:
+            ``self``, for chaining.
+        """
+        self.normalizer = normalizer
+        return self
+
+    def _field(self, name: str, idx: int) -> torch.Tensor:
+        """Fetch one raw field, standardized when a normalizer is attached."""
+        value = self.data[name][idx]
+        if self.normalizer is not None:
+            value = self.normalizer.normalize(name, value)
+        return value
+
+    @property
+    def input_fields(self) -> List[str]:
+        """Raw field names composing ``sample['input']``, in channel order."""
+        return [self.input_key]
+
+    @property
+    def target_fields(self) -> List[str]:
+        """Raw field names composing ``sample['target']``, in channel order."""
+        return [self.target_key]
+
     #Dataset interface
     def __len__(self) -> int:
         return len(self.data[self.input_key])
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        inp = self.data[self.input_key][idx]
+        inp = self._field(self.input_key, idx)
         obs_mask = self.data.get('obs_mask')
         if obs_mask is not None:
+            # The mask stays binary: it is an indicator channel, not a field.
             inp = torch.cat([inp, obs_mask[idx]], dim=0)
 
         sample = {
             'input': inp,
-            'target': self.data[self.target_key][idx],
+            'target': self._field(self.target_key, idx),
         }
         if obs_mask is not None:
             sample['obs_mask'] = obs_mask[idx]

@@ -49,6 +49,8 @@ Dependencies:
 Requires Exponax: pip install exponax jax
 """
 
+from .normalization import FieldNormalizer
+
 # Exponax integration
 from .exponax import (
     PDEDataset,
@@ -84,6 +86,9 @@ __all__ = [
     'GenerationConfig',
     'ExponaxDatasetGenerator',
     'FourierFieldConfig',
+
+    # Normalization
+    'FieldNormalizer',
 
     # Utilities
     'sample_fourier_fields',

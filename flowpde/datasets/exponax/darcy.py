@@ -46,7 +46,7 @@ Example::
 """
 
 from dataclasses import dataclass
-from typing import Optional, Literal
+from typing import List, Optional, Literal
 
 import torch
 from torch.utils.data import Dataset
@@ -54,6 +54,7 @@ from torch.utils.data import Dataset
 import jax
 import jax.numpy as jnp
 
+from ..normalization import FieldNormalizer
 from .base import GenerationConfig
 from .generator import (
     ExponaxDatasetGenerator,
@@ -360,11 +361,13 @@ class DarcyDataset(Dataset):
         problem: Literal['forward', 'inverse'] = 'forward',
         inverse_mode: Literal['both', 'coefficient', 'source'] = 'coefficient',
         metadata: Optional[dict] = None,
+        normalizer: Optional[FieldNormalizer] = None,
     ):
         self.data     = data
         self.problem  = problem
         self.inverse_mode = inverse_mode
         self.metadata = metadata or {}
+        self.normalizer = normalizer
 
         if self.problem not in {'forward', 'inverse'}:
             raise ValueError("problem must be 'forward' or 'inverse'")
@@ -373,13 +376,56 @@ class DarcyDataset(Dataset):
                 "inverse_mode must be 'both', 'coefficient', or 'source'"
             )
 
+    # Normalization
+    def set_normalizer(self, normalizer: Optional[FieldNormalizer]) -> 'DarcyDataset':
+        """
+        Attach (or clear) a field normalizer applied on every access.
+
+        Pass the *training* split's normalizer to validation and test splits
+        so all data is standardized with the same statistics.
+
+        Returns:
+            ``self``, for chaining.
+        """
+        self.normalizer = normalizer
+        return self
+
+    def _field(self, name: str, idx: int) -> torch.Tensor:
+        """Fetch one raw field, standardized when a normalizer is attached."""
+        value = self.data[name][idx]
+        if self.normalizer is not None:
+            value = self.normalizer.normalize(name, value)
+        return value
+
+    @property
+    def input_fields(self) -> List[str]:
+        """Raw field names composing ``sample['input']``, in channel order."""
+        if self.problem == 'forward':
+            return ['kappa', 'source']
+        if self.inverse_mode == 'both':
+            return ['solution']
+        if self.inverse_mode == 'coefficient':
+            return ['solution', 'source']
+        return ['solution', 'kappa']
+
+    @property
+    def target_fields(self) -> List[str]:
+        """Raw field names composing ``sample['target']``, in channel order."""
+        if self.problem == 'forward':
+            return ['solution']
+        if self.inverse_mode == 'both':
+            return ['kappa', 'source']
+        if self.inverse_mode == 'coefficient':
+            return ['kappa']
+        return ['source']
+
     def __len__(self) -> int:
         return len(self.data['solution'])
 
     def __getitem__(self, idx: int) -> dict:
-        kappa = self.data['kappa'][idx]       # (1, *spatial)
-        f     = self.data['source'][idx]      # (1, *spatial)
-        u     = self.data['solution'][idx]    # (1, *spatial)
+        kappa = self._field('kappa', idx)       # (1, *spatial)
+        f     = self._field('source', idx)      # (1, *spatial)
+        u     = self._field('solution', idx)    # (1, *spatial)
 
         if self.problem == 'forward':
             inp    = torch.cat([kappa, f], dim=0)   # (2, *spatial)

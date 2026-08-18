@@ -14,18 +14,23 @@ def save_model(
     epoch_loss: float,
     save_dir: str,
     filename: Optional[str] = None,
+    extra: Optional[dict] = None,
 ) -> str:
     """Save a training checkpoint.
 
     Args:
         model:       The model whose state to save.
         optimizer:   Optimizer state.
-        scheduler:   LR scheduler state.
+        scheduler:   LR scheduler state.  May be ``None``.
         epoch:       Current epoch number (used in auto-generated filename).
         epoch_loss:  Training loss for this epoch.
         save_dir:    Directory to save the checkpoint in.
         filename:    Optional explicit filename.  Defaults to
                      ``model_{epoch}.pt``.
+        extra:       Optional additional entries merged into the checkpoint,
+                     e.g. ``{'ema_state': ..., 'normalizer_state': ...}``.
+                     A checkpoint is only reusable if everything needed to
+                     reproduce inference travels with the weights.
 
     Returns:
         Absolute path to the saved checkpoint file.
@@ -33,16 +38,16 @@ def save_model(
     os.makedirs(save_dir, exist_ok=True)
     fname = filename if filename is not None else f"model_{epoch}.pt"
     ckpt_path = os.path.join(save_dir, fname)
-    torch.save(
-        {
-            "model_state": model.state_dict(),
-            "optimizer_state": optimizer.state_dict(),
-            "scheduler_state": scheduler.state_dict(),
-            "train_loss": epoch_loss,
-            "epoch": epoch,
-        },
-        ckpt_path,
-    )
+    checkpoint = {
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "scheduler_state": scheduler.state_dict() if scheduler is not None else None,
+        "train_loss": epoch_loss,
+        "epoch": epoch,
+    }
+    if extra:
+        checkpoint.update(extra)
+    torch.save(checkpoint, ckpt_path)
     return ckpt_path
 
 
