@@ -10,6 +10,7 @@ Components:
 - PathInterpolant: Base class for interpolation paths
 - TimeSampler: Base class for time distributions
 - Coupling: Base class for coupling strategies
+- SourceDistribution: Base class for where trajectories start
 
 """
 
@@ -35,6 +36,11 @@ from .components import (
     IndependentCoupling,
     MiniBatchOTCoupling,
     get_coupling,
+    # Sources
+    SourceDistribution,
+    GaussianSource,
+    BatchSource,
+    get_source,
 )
 
 __all__ = [
@@ -61,4 +67,10 @@ __all__ = [
     'IndependentCoupling',
     'MiniBatchOTCoupling',
     'get_coupling',
+
+    # Source components
+    'SourceDistribution',
+    'GaussianSource',
+    'BatchSource',
+    'get_source',
 ]

@@ -5,6 +5,7 @@ This module provides composable building blocks:
 - PathInterpolant: Interpolation path strategies (linear, OT, etc.)
 - TimeSampler: Time distribution samplers (uniform, logit-normal, etc.)
 - Coupling: Noise-data coupling strategies
+- SourceDistribution: Where trajectories start (noise, or precomputed pairs)
 """
 
 from .paths import (
@@ -30,6 +31,13 @@ from .couplings import (
     get_coupling,
 )
 
+from .sources import (
+    SourceDistribution,
+    GaussianSource,
+    BatchSource,
+    get_source,
+)
+
 __all__ = [
     # Paths
     'PathInterpolant',
@@ -48,4 +56,9 @@ __all__ = [
     'IndependentCoupling',
     'MiniBatchOTCoupling',
     'get_coupling',
+    # Sources
+    'SourceDistribution',
+    'GaussianSource',
+    'BatchSource',
+    'get_source',
 ]

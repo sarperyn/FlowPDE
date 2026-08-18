@@ -21,5 +21,20 @@ dependencies = [
     "exponax>=0.1.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
 [tool.setuptools.packages.find]
 include = ["flowpde*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: integration tests that run the PDE solvers",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::SyntaxWarning",
+]

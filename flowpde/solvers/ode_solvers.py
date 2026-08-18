@@ -156,8 +156,9 @@ class ODEFlowSolver(ODESolver):
         device = y0.device
         t_eval = torch.tensor(list(t_span), device=device)
         
-        # Build options
-        options = {'dtype': torch.float32}
+        # Build options. 'dtype' is an adaptive-solver option; fixed-step
+        # solvers reject it with a warning on every call.
+        options = {} if self.method in self.FIXED_STEP_SOLVERS else {'dtype': torch.float32}
         options.update(self.method_options)
         options.update(kwargs)
         
@@ -193,12 +194,15 @@ class ODEFlowSolver(ODESolver):
         Returns:
             trajectory: States at each time point (n_steps, batch_size, dim)
         """
-        # Build options
-        options = {'dtype': torch.float32}
+        # Build options. 'dtype' is an adaptive-solver option; fixed-step
+        # solvers reject it with a warning on every call.
         if self.method in self.FIXED_STEP_SOLVERS:
+            options = {}
             n_steps = len(t_eval) - 1
             dt = (t_eval[-1] - t_eval[0]) / n_steps
             options['step_size'] = dt.item()
+        else:
+            options = {'dtype': torch.float32}
         
         options.update(self.method_options)
         options.update(kwargs)

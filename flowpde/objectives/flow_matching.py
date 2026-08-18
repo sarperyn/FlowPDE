@@ -19,9 +19,11 @@ from flowpde.flows.components import (
     PathInterpolant,
     TimeSampler,
     Coupling,
+    SourceDistribution,
     get_path,
     get_time_sampler,
     get_coupling,
+    get_source,
 )
 
 
@@ -36,6 +38,7 @@ class FlowMatchingObjective(nn.Module):
     - **Path**: How to interpolate between noise and data
     - **Time Sampler**: Distribution for sampling training times
     - **Coupling**: How to pair noise and data samples
+    - **Source**: Where trajectories start (noise, or precomputed pairs)
     
     Standard Configurations:
     
@@ -60,6 +63,9 @@ class FlowMatchingObjective(nn.Module):
         path: Interpolation path ('linear', 'ot_conditional') or PathInterpolant
         time_sampler: Time distribution ('uniform', 'logit_normal') or TimeSampler
         coupling: Coupling strategy ('independent', 'minibatch_ot') or Coupling
+        source: Source distribution ('gaussian', 'batch') or SourceDistribution.
+            Use 'batch' (``BatchSource``) to train on precomputed (x_0, x_1)
+            pairs, which is what reflow requires.
         sigma: Noise level for OT-conditional path (default: 0.0)
         target_key: Default batch key for target tensors (default: 'u')
         condition_key: Default batch key for condition tensors (default: 'f')
@@ -76,6 +82,7 @@ class FlowMatchingObjective(nn.Module):
         path: Union[str, PathInterpolant] = "linear",
         time_sampler: Union[str, TimeSampler] = "uniform",
         coupling: Union[str, Coupling] = "independent",
+        source: Union[str, SourceDistribution] = "gaussian",
         sigma: float = 0.0,
         target_key: Optional[str] = None,
         condition_key: Optional[str] = None,
@@ -95,25 +102,48 @@ class FlowMatchingObjective(nn.Module):
         
         self.time_sampler = get_time_sampler(time_sampler)
         self.coupling = get_coupling(coupling)
+        self.source = get_source(source)
         self.sigma = sigma
         
         # Store string names for config
         self._path_name = path if isinstance(path, str) else path.__class__.__name__
         self._time_sampler_name = time_sampler if isinstance(time_sampler, str) else time_sampler.__class__.__name__
         self._coupling_name = coupling if isinstance(coupling, str) else coupling.__class__.__name__
+        self._source_name = source if isinstance(source, str) else source.__class__.__name__
     
     def sample_base_distribution(
         self,
         shape: Tuple[int, ...],
-        device: torch.device
+        device: torch.device,
+        batch: Optional[Dict[str, Tensor]] = None,
     ) -> Tensor:
-        """Sample from base distribution (standard Gaussian)."""
-        return torch.randn(*shape, device=device)
+        """
+        Draw ``x_0`` from the configured source distribution.
+
+        Args:
+            shape: Shape of ``x_0``, matching the target.
+            device: Device to place the result on.
+            batch: Training batch, forwarded so sources such as
+                ``BatchSource`` can read precomputed values from it.
+                Omitted at inference, where sources fall back to noise.
+        """
+        return self.source(shape, device, batch)
 
     @property
     def model_device(self) -> torch.device:
         return self.flow.model_device
     
+    def _source_defines_pairing(self, batch: Optional[Dict[str, Tensor]]) -> bool:
+        """Whether the source already determines which x_0 goes with which x_1.
+
+        Reflow pairs are meaningful only as pairs: the model is retrained on
+        exactly the trajectories it generated. Reordering them with a coupling
+        would break that correspondence.
+        """
+        source = self.source
+        key = getattr(source, "key", None)
+        return key is not None and batch is not None and key in batch
+
     def compute_loss(
         self,
         batch: Dict[str, Tensor],
@@ -152,11 +182,15 @@ class FlowMatchingObjective(nn.Module):
         self.flow._target_dim = x_1.shape[1]
         batch_size = x_1.shape[0]
         
-        # Sample from base distribution (noise)
-        x_0 = self.sample_base_distribution(x_1.shape, self.model_device)
+        # Draw x_0 from the source. Passing the batch lets BatchSource
+        # return the precomputed x_0 that reflow depends on.
+        x_0 = self.sample_base_distribution(x_1.shape, self.model_device, batch)
         
-        # Apply coupling strategy
-        x_0, x_1 = self.coupling(x_0, x_1)
+        # Apply coupling strategy. A source that carries its own pairing
+        # already fixes which x_0 goes with which x_1, so re-coupling here
+        # would destroy it.
+        if not self._source_defines_pairing(batch):
+            x_0, x_1 = self.coupling(x_0, x_1)
         
         # Sample time
         t = self.time_sampler(batch_size, self.model_device)
@@ -230,71 +264,141 @@ class FlowMatchingObjective(nn.Module):
         # Create solver and integrate
         ode_solver = ODEFlowSolver(model=self.model, method=solver, **solver_kwargs)
         
-        samples = ode_solver.sample(
+        result = ode_solver.sample(
             condition=condition_flat,
             x_init=x_init,
             n_steps=n_steps,
+            return_trajectory=return_trajectory,
         )
         
-        return samples
+        return result
     
     def estimate_straightness(
         self,
         batch: Dict[str, Tensor],
         n_time_points: int = 10,
+        mode: str = "trajectory",
+        n_steps: int = 50,
+        solver: str = "euler",
         target_key: Optional[str] = None,
         condition_key: Optional[str] = None,
     ) -> Dict[str, float]:
         """
-        Estimate how straight the learned transport paths are.
-        
-        Straighter paths have more uniform velocities, meaning the model
-        predicts similar v at different time points for the same (x_0, x_1) pair.
-        
+        Measure how straight the learned transport paths are.
+
+        Straightness follows Liu et al. (2023): a flow is straight when its
+        velocity along a trajectory equals the chord connecting the endpoints,
+
+        $$S = \\int_0^1 \\mathbb{E}\\left[\\lVert (Z_1 - Z_0)
+              - v_\\theta(Z_t, t) \\rVert^2\\right] dt,$$
+
+        so :math:`S = 0` exactly when every trajectory is a straight line
+        traversed at constant velocity — which is what makes few-step Euler
+        sampling accurate, and what reflow is meant to improve.
+
+        Two modes are available:
+
+        - ``'trajectory'`` (default): integrate the learned ODE and measure
+          deviation along the model's **own** trajectories.  This is the
+          quantity that predicts few-step sampling quality.
+        - ``'interpolant'``: measure deviation along the training interpolant
+          between sampled ``(x_0, x_1)`` pairs.  Cheaper (no ODE solve) and it
+          reports how far the learned marginal velocity sits from the
+          conditional target, but it does *not* describe the sampling paths.
+
         Args:
-            batch: Batch with target and condition tensors
-            n_time_points: Number of time points to evaluate
-            target_key: Batch key for target data
-            condition_key: Batch key for conditioning data
-        
+            batch: Batch with target and condition tensors.
+            n_time_points: Number of time points at which velocity is probed.
+            mode: ``'trajectory'`` or ``'interpolant'``.
+            n_steps: ODE steps used to build trajectories (``'trajectory'``).
+            solver: ODE solver used to build trajectories (``'trajectory'``).
+            target_key: Batch key for target data.
+            condition_key: Batch key for conditioning data.
+
         Returns:
             Dictionary with:
-            - 'velocity_std': Std of velocity norms across time (lower = straighter)
-            - 'straightness_score': 1 / (1 + velocity_std)
+
+            - ``'straightness'``: the integral above (0 = perfectly straight).
+            - ``'normalized_straightness'``: divided by the mean squared chord
+              length, making it dimensionless and comparable across datasets
+              and normalization choices.
+            - ``'chord_norm'``: mean chord length, for reference.
         """
-        self.model.eval()
-        
+        if mode not in {"trajectory", "interpolant"}:
+            raise ValueError(
+                f"mode must be 'trajectory' or 'interpolant', got '{mode}'"
+            )
+
+        was_training = self.training
+        self.eval()
+
         x_1, condition = self.flow._extract_target_condition(
             batch,
             target_key=target_key or self.target_key,
             condition_key=condition_key or self.condition_key,
         )
         batch_size = x_1.shape[0]
-        
-        x_0 = self.sample_base_distribution(x_1.shape, self.model_device)
-        
-        with torch.no_grad():
-            velocities = []
-            time_points = torch.linspace(0.01, 0.99, n_time_points, device=self.model_device)
-            
-            for t_val in time_points:
-                t = t_val.expand(batch_size, 1)
-                x_t, _ = self.path(x_0, x_1, t)
-                v_pred = self.model(x_t, condition, t)
-                vel_norm = v_pred.norm(dim=1)
-                velocities.append(vel_norm)
-            
-            # Stack: (n_time_points, batch_size)
-            velocities = torch.stack(velocities, dim=0)
-            
-            # Std across time for each sample
-            vel_std = velocities.std(dim=0).mean().item()
-        
+
+        try:
+            with torch.no_grad():
+                if mode == "trajectory":
+                    x_0 = self.sample_base_distribution(x_1.shape, self.model_device)
+                    _, trajectory = self.sample(
+                        condition=condition,
+                        n_steps=n_steps,
+                        solver=solver,
+                        x_init=x_0,
+                        return_trajectory=True,
+                    )
+                    # trajectory: (n_steps + 1, B, dim)
+                    z_0, z_1 = trajectory[0], trajectory[-1]
+                    chord = z_1 - z_0
+
+                    # Probe interior times, avoiding the exact endpoints where
+                    # the velocity field is least constrained.
+                    indices = torch.linspace(
+                        0, trajectory.shape[0] - 1, n_time_points
+                    ).round().long()
+                    time_grid = torch.linspace(
+                        0.0, 1.0, trajectory.shape[0], device=self.model_device
+                    )
+
+                    deviations = []
+                    for index in indices:
+                        z_t = trajectory[index]
+                        t = time_grid[index].expand(batch_size, 1)
+                        v_pred = self.model(z_t, condition, t)
+                        deviations.append((v_pred - chord).pow(2).sum(dim=1))
+                else:
+                    x_0 = self.sample_base_distribution(x_1.shape, self.model_device)
+                    x_0, x_1 = self.coupling(x_0, x_1)
+                    chord = x_1 - x_0
+
+                    time_points = torch.linspace(
+                        0.01, 0.99, n_time_points, device=self.model_device
+                    )
+                    deviations = []
+                    for t_val in time_points:
+                        t = t_val.expand(batch_size, 1)
+                        x_t, _ = self.path(x_0, x_1, t)
+                        v_pred = self.model(x_t, condition, t)
+                        deviations.append((v_pred - chord).pow(2).sum(dim=1))
+
+                # Mean over time (the integral) and over the batch.
+                straightness = torch.stack(deviations, dim=0).mean().item()
+                chord_sq = chord.pow(2).sum(dim=1).mean()
+                normalized = (straightness / chord_sq.clamp(min=1e-12)).item()
+                chord_norm = chord.norm(dim=1).mean().item()
+        finally:
+            if was_training:
+                self.train()
+
         return {
-            'velocity_std': vel_std,
-            'straightness_score': 1.0 / (1.0 + vel_std),
+            "straightness": straightness,
+            "normalized_straightness": normalized,
+            "chord_norm": chord_norm,
         }
-    
+
     def get_config(self) -> Dict[str, Any]:
         """Return configuration dictionary for serialization."""
         return {
@@ -303,6 +407,7 @@ class FlowMatchingObjective(nn.Module):
             'path': self._path_name,
             'time_sampler': self._time_sampler_name,
             'coupling': self._coupling_name,
+            'source': self.source.get_config(),
             'sigma': self.sigma,
             'target_key': self.target_key,
             'condition_key': self.condition_key,
@@ -315,6 +420,7 @@ class FlowMatchingObjective(nn.Module):
             f"  path={self._path_name},\n"
             f"  time_sampler={self._time_sampler_name},\n"
             f"  coupling={self._coupling_name},\n"
+            f"  source={self.source!r},\n"
             f"  sigma={self.sigma}\n"
             f")"
         )
