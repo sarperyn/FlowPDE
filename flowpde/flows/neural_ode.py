@@ -177,6 +177,11 @@ class NeuralODEFlow(BaseFlow):
         base_distribution: str = 'gaussian',
         trace_estimator: str = 'hutchinson',
         n_trace_samples: int = 1,
+        ode_method: str = 'dopri5',
+        ode_n_steps: Optional[int] = None,
+        use_adjoint: bool = False,
+        ode_rtol: float = 1e-5,
+        ode_atol: float = 1e-7,
         target_key: str = "u",
         condition_key: str = "f",
     ):
@@ -188,6 +193,11 @@ class NeuralODEFlow(BaseFlow):
         self.base_distribution = base_distribution
         self.trace_estimator = trace_estimator
         self.n_trace_samples = n_trace_samples
+        self.ode_method = ode_method
+        self.ode_n_steps = ode_n_steps
+        self.use_adjoint = use_adjoint
+        self.ode_rtol = ode_rtol
+        self.ode_atol = ode_atol
         
         if trace_estimator not in ['exact', 'hutchinson']:
             raise ValueError(f"Unknown trace estimator: {trace_estimator}")
@@ -211,7 +221,9 @@ class NeuralODEFlow(BaseFlow):
         condition: Tensor,
         t_span: Tuple[float, float] = (0.0, 1.0),
         compute_logp: bool = False,
-        n_steps: Optional[int] = None
+        n_steps: Optional[int] = None,
+        method: Optional[str] = None,
+        use_adjoint: Optional[bool] = None,
     ) -> Tuple[Tensor, Optional[Tensor]]:
         """
         Integrate ODE with optional log probability tracking.
@@ -251,15 +263,40 @@ class NeuralODEFlow(BaseFlow):
         # Time points
         t_start, t_end = t_span
         t_eval = torch.tensor([t_start, t_end], device=device)
-        
-        # Integrate
-        trajectory = odeint(
+
+        method = method or self.ode_method
+        n_steps = n_steps or self.ode_n_steps
+        use_adjoint = self.use_adjoint if use_adjoint is None else use_adjoint
+
+        # The CNF log-probability path needs higher-order derivatives through
+        # the trace estimator. torchdiffeq's adjoint mode trades memory for a
+        # custom backward solve, which is not a good fit for that graph, so keep
+        # direct autograd for likelihood training.
+        if compute_logp and use_adjoint:
+            use_adjoint = False
+
+        odeint_fn = odeint
+        if use_adjoint:
+            from torchdiffeq import odeint_adjoint
+
+            odeint_fn = odeint_adjoint
+
+        kwargs = {"method": method}
+        if method in {"euler", "midpoint", "rk4", "explicit_adams", "implicit_adams", "fixed_adams"}:
+            if n_steps is None:
+                raise ValueError(
+                    f"n_steps must be set when using fixed-step ODE method '{method}'."
+                )
+            kwargs["options"] = {"step_size": abs(t_end - t_start) / int(n_steps)}
+        else:
+            kwargs["rtol"] = self.ode_rtol
+            kwargs["atol"] = self.ode_atol
+
+        trajectory = odeint_fn(
             vector_field,
             state,
             t_eval,
-            method='dopri5',
-            rtol=1e-5,
-            atol=1e-7
+            **kwargs,
         )
         
         final_state = trajectory[-1]
@@ -320,7 +357,9 @@ class NeuralODEFlow(BaseFlow):
             x_0, condition,
             t_span=(0.0, 1.0),
             compute_logp=False,
-            n_steps=n_steps
+            n_steps=n_steps,
+            method=solver,
+            use_adjoint=solver_kwargs.pop("use_adjoint", None),
         )
         
         return x_1
@@ -348,20 +387,23 @@ class NeuralODEFlow(BaseFlow):
         x_0, delta_logp = self._integrate_ode(
             x, condition,
             t_span=(1.0, 0.0),
-            compute_logp=True
+            compute_logp=True,
+            n_steps=kwargs.get("n_steps"),
+            method=kwargs.get("solver") or kwargs.get("method"),
+            use_adjoint=kwargs.get("use_adjoint"),
         )
         
         # Compute base log probability
         if self.base_distribution == 'gaussian':
             log_p0 = -0.5 * (x_0 ** 2).sum(dim=1) - 0.5 * x_0.shape[1] * torch.log(
-                torch.tensor(2 * 3.14159265, device=x_0.device)
+                torch.tensor(2 * torch.pi, device=x_0.device)
             )
         else:
             in_support = ((x_0 >= -1) & (x_0 <= 1)).all(dim=1).float()
             log_p0 = torch.log(in_support / (2 ** x_0.shape[1]) + 1e-10)
         
         # Log probability at data
-        log_px = log_p0 + delta_logp
+        log_px = log_p0 - delta_logp
         
         return log_px
     
@@ -421,6 +463,11 @@ class NeuralODEFlow(BaseFlow):
             'base_distribution': self.base_distribution,
             'trace_estimator': self.trace_estimator,
             'n_trace_samples': self.n_trace_samples,
+            'ode_method': self.ode_method,
+            'ode_n_steps': self.ode_n_steps,
+            'use_adjoint': self.use_adjoint,
+            'ode_rtol': self.ode_rtol,
+            'ode_atol': self.ode_atol,
             'target_key': self.target_key,
             'condition_key': self.condition_key,
             'model_type': self.model.__class__.__name__

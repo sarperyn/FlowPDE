@@ -224,7 +224,7 @@ class UNet(nn.Module):
         )
         self.time_proj_bottleneck = nn.Linear(time_emb_dim, bottleneck_ch)
         
-        if use_attention and spatial_dim == 2:
+        if use_attention:
             self.bottleneck_attn = AttentionBlock(bottleneck_ch, norm_type=norm_type)
         else:
             self.bottleneck_attn = None

@@ -179,7 +179,7 @@ class FlowMatchingObjective(nn.Module):
             target_key=target_key or self.target_key,
             condition_key=condition_key or self.condition_key,
         )
-        self.flow._target_dim = x_1.shape[1]
+        self.flow._target_dim = x_1.flatten(start_dim=1).shape[1]
         batch_size = x_1.shape[0]
         
         # Draw x_0 from the source. Passing the batch lets BatchSource
