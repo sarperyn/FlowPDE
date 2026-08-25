@@ -6,7 +6,7 @@ Different sampling strategies can improve training dynamics.
 """
 
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Any, Union
 
 import torch
 from torch import Tensor
@@ -154,7 +154,7 @@ _SAMPLER_REGISTRY = {
 
 def get_time_sampler(
     sampler: Union[str, TimeSampler], 
-    **kwargs
+    **kwargs: Any
 ) -> TimeSampler:
     """
     Get a time sampler by name or return if already an instance.

@@ -30,7 +30,7 @@ class BaseFlow(ABC, nn.Module):
         base_distribution: str = 'gaussian',
         target_key: str = 'u',
         condition_key: str = 'f',
-        **kwargs
+        **kwargs: Any
     ):
         """
         Initialize base flow.
@@ -82,7 +82,7 @@ class BaseFlow(ABC, nn.Module):
         self,
         x: Tensor,
         condition: Optional[Tensor] = None,
-        **kwargs
+        **kwargs: Any
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
         Transform from data space to latent space (forward direction).
@@ -105,7 +105,7 @@ class BaseFlow(ABC, nn.Module):
         self,
         z: Tensor,
         condition: Optional[Tensor] = None,
-        **kwargs
+        **kwargs: Any
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
         Transform from latent space to data space (inverse/sampling direction).
@@ -128,7 +128,7 @@ class BaseFlow(ABC, nn.Module):
         n_samples: int,
         condition: Optional[Tensor] = None,
         device: str = 'cuda',
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Generate samples from the flow.
@@ -170,7 +170,7 @@ class BaseFlow(ABC, nn.Module):
         self,
         x: Tensor,
         condition: Optional[Tensor] = None,
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Compute log probability of data under the flow.

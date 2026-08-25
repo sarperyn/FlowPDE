@@ -139,7 +139,7 @@ class ODEFlowSolver(ODESolver):
         func: Callable[[Tensor, Tensor], Tensor],
         y0: Tensor,
         t_span: Tuple[float, float],
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Solve the ODE $dy/dt = f(t, y)$.
@@ -180,7 +180,7 @@ class ODEFlowSolver(ODESolver):
         func: Callable[[Tensor, Tensor], Tensor],
         y0: Tensor,
         t_eval: Tensor,
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Solve and return trajectory at specified time points.

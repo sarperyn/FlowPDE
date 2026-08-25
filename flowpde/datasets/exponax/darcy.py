@@ -1,4 +1,4 @@
-"""
+r"""
 Darcy Flow / Variable-Coefficient Poisson Data Generation
 ==========================================================
 
@@ -64,7 +64,7 @@ from .generator import (
 
 
 def _grf_1d(key, N: int, alpha: float, tau: float):
-    """Zero-mean 1-D Gaussian random field via spectral filtering.
+    r"""Zero-mean 1-D Gaussian random field via spectral filtering.
 
     Power spectrum:
 
@@ -89,7 +89,7 @@ def _grf_1d(key, N: int, alpha: float, tau: float):
 
 
 def _grf_2d(key, N: int, alpha: float, tau: float):
-    """Zero-mean 2-D Gaussian random field via spectral filtering.
+    r"""Zero-mean 2-D Gaussian random field via spectral filtering.
 
     Power spectrum:
 
@@ -115,13 +115,13 @@ def _grf_2d(key, N: int, alpha: float, tau: float):
 
 
 def _matvec_1d(u_int, kappa, h: float):
-    """Apply :math:`-\\partial_x(\\kappa\\, \\partial_x \\cdot)` via 1-D finite differences on interior nodes.
+    r"""Apply :math:`-\partial_x(\kappa\, \partial_x \cdot)` via 1-D finite differences on interior nodes.
 
     Interface permeabilities use arithmetic averaging:
 
     .. math::
 
-        \kappa_{i \pm 1/2} = \\frac{\kappa_i + \kappa_{i \pm 1}}{2}.
+        \kappa_{i \pm 1/2} = \frac{\kappa_i + \kappa_{i \pm 1}}{2}.
 
     Args:
         u_int: Interior solution values, shape ``(N-2,)``.
@@ -143,15 +143,15 @@ def _matvec_1d(u_int, kappa, h: float):
 
 
 def _matvec_2d(u_flat, kappa, h: float, N_int: int):
-    """Apply :math:`-\\nabla \\cdot (\\kappa\\, \\nabla \\cdot)` via 2-D FD on interior nodes (five-point stencil).
+    r"""Apply :math:`-\nabla \cdot (\kappa\, \nabla \cdot)` via 2-D FD on interior nodes (five-point stencil).
 
     Interface permeabilities use arithmetic averaging:
 
     .. math::
 
-        \kappa_{i+1/2,\,j} = \\frac{\kappa_{i,j} + \kappa_{i+1,j}}{2},
+        \kappa_{i+1/2,\,j} = \frac{\kappa_{i,j} + \kappa_{i+1,j}}{2},
         \quad
-        \kappa_{i,\,j+1/2} = \\frac{\kappa_{i,j} + \kappa_{i,j+1}}{2},
+        \kappa_{i,\,j+1/2} = \frac{\kappa_{i,j} + \kappa_{i,j+1}}{2},
         \quad \text{etc.}
 
     The resulting operator is symmetric positive definite for
@@ -184,7 +184,7 @@ def _matvec_2d(u_flat, kappa, h: float, N_int: int):
 
 
 def _cg_scan(matvec, b, steps: int):
-    """Fixed-iteration conjugate gradient via ``jax.lax.scan``.
+    r"""Fixed-iteration conjugate gradient via ``jax.lax.scan``.
 
     Runs exactly *steps* CG iterations with no convergence check, keeping the
     computation graph fully static so that the function is compatible with
@@ -192,13 +192,13 @@ def _cg_scan(matvec, b, steps: int):
     values (e.g., a per-sample :math:`\kappa` field).
 
     Args:
-        matvec: SPD linear operator :math:`A : \\mathbb{R}^n \\to \\mathbb{R}^n`.
+        matvec: SPD linear operator :math:`A : \mathbb{R}^n \to \mathbb{R}^n`.
         b:      Right-hand side vector, shape ``(n,)``.
         steps:  Number of CG iterations.
 
     Returns:
         ``(x, final_residual_sq)``: Approximate solution and
-        :math:`\\lVert r \\rVert^2` after the last iteration (scalar,
+        :math:`\lVert r \rVert^2` after the last iteration (scalar,
         useful for diagnostics).
     """
     x = jnp.zeros_like(b)
@@ -268,7 +268,7 @@ def _solve_one_2d(kappa, f, h: float, N: int, cg_steps: int):
 
 @dataclass
 class DarcyConfig(GenerationConfig):
-    """
+    r"""
     Configuration for the Darcy-flow / variable-coefficient Poisson generator.
 
     Inherits all base fields from ``GenerationConfig`` (``num_points``,
@@ -279,16 +279,16 @@ class DarcyConfig(GenerationConfig):
         num_spatial_dims: Spatial dimension (1 or 2).  Default 2.
         domain_extent: Side length of the square/interval domain.  Default
             1.0 ([0,1]^d), which is the standard Darcy benchmark domain.
-        kappa_alpha: Spectral exponent :math:`\\alpha` for the :math:`\kappa`
+        kappa_alpha: Spectral exponent :math:`\alpha` for the :math:`\kappa`
             GRF power spectrum
-            :math:`S(\\lvert k\\rvert) \\propto (\\tau^2 + \\lvert k\\rvert^2)^{-\\alpha}`.
+            :math:`S(\lvert k\rvert) \propto (\tau^2 + \lvert k\rvert^2)^{-\alpha}`.
             Higher → smoother permeability.
-            :math:`\\alpha = 2.0` matches the original FNO Darcy benchmark.
-        kappa_tau: GRF inverse correlation length :math:`\\tau`.  Higher →
+            :math:`\alpha = 2.0` matches the original FNO Darcy benchmark.
+        kappa_tau: GRF inverse correlation length :math:`\tau`.  Higher →
             more oscillatory :math:`\kappa` with smaller features.
-        kappa_scale: Standard deviation of :math:`\\log\kappa` before
+        kappa_scale: Standard deviation of :math:`\log\kappa` before
             exponentiation.  Scale 1.0 gives
-            :math:`\kappa \\in [e^{-2}, e^{2}] \\approx [0.14,\, 7.4]`
+            :math:`\kappa \in [e^{-2}, e^{2}] \approx [0.14,\, 7.4]`
             roughly.  Increase for higher contrast between high- and
             low-permeability regions.
         kappa_min: Hard lower bound on :math:`\kappa`
@@ -472,14 +472,14 @@ class DarcyDataset(Dataset):
 
 
 class DarcyGenerator(ExponaxDatasetGenerator):
-    """
+    r"""
     Generate Darcy-flow / variable-coefficient Poisson datasets.
 
     Workflow:
 
         1. Draw per-sample log-normal :math:`\kappa` fields from a GRF.
         2. Draw per-sample smooth Fourier source fields.
-        3. Solve :math:`-\\nabla\\cdot(\kappa\\,\\nabla u)=f` via FD + fixed-step CG for each sample.
+        3. Solve :math:`-\nabla\cdot(\kappa\,\nabla u)=f` via FD + fixed-step CG for each sample.
         4. Optionally apply additive noise and/or spatial masking to the
            solution field (for inverse-problem datasets).
         5. Convert to PyTorch tensors and return a ``DarcyDataset``.

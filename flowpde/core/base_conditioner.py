@@ -24,7 +24,7 @@ class BaseConditioner(ABC, nn.Module):
     - Adaptive Instance Normalization
     """
     
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any):
         """
         Initialize conditioner.
         
@@ -39,7 +39,7 @@ class BaseConditioner(ABC, nn.Module):
         self,
         x: Tensor,
         condition: Tensor,
-        **kwargs
+        **kwargs: Any
     ) -> Union[Tensor, Dict[str, Tensor]]:
         """
         Apply conditioning to input.
@@ -105,7 +105,7 @@ class ConcatConditioner(BaseConditioner):
         self,
         x: Tensor,
         condition: Tensor,
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Concatenate condition with input.
@@ -171,7 +171,7 @@ class FiLMConditioner(BaseConditioner):
         self,
         x: Tensor,
         condition: Tensor,
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Apply FiLM conditioning.
@@ -219,7 +219,7 @@ class NullConditioner(BaseConditioner):
         self,
         x: Tensor,
         condition: Optional[Tensor] = None,
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """Return input unchanged."""
         return x

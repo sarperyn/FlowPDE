@@ -1,4 +1,4 @@
-"""
+r"""
 PDE Operator Evaluation Metrics
 ================================
 
@@ -80,13 +80,13 @@ def _norm(x: Tensor, p: float = 2.0) -> Tensor:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def relative_l2_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
-    """Relative L2 error — the primary neural-operator benchmark metric.
+    r"""Relative L2 error — the primary neural-operator benchmark metric.
 
     .. math::
 
-        \\varepsilon = \\frac{1}{N} \\sum_{i=1}^{N}
-            \\frac{\\lVert \\hat{u}_i - u_i \\rVert_2}
-                  {\\lVert u_i \\rVert_2 + \\epsilon}
+        \varepsilon = \frac{1}{N} \sum_{i=1}^{N}
+            \frac{\lVert \hat{u}_i - u_i \rVert_2}
+                  {\lVert u_i \rVert_2 + \epsilon}
 
     Norms are taken over all non-batch dimensions (channels + spatial).
 
@@ -160,16 +160,16 @@ def max_pointwise_error(pred: Tensor, target: Tensor) -> Tensor:
 
 
 def relative_max_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
-    """Relative maximum pointwise error (L∞ norm, normalised by target range).
+    r"""Relative maximum pointwise error (L∞ norm, normalised by target range).
 
     Normalises by the standard deviation of each sample's target field so
     the result is comparable across PDEs with different solution scales.
 
     .. math::
 
-        \\varepsilon_{\\infty} = \\frac{1}{N} \\sum_{i=1}^{N}
-            \\frac{\\max_{x} | \\hat{u}_i(x) - u_i(x) |}
-                  {\\mathrm{std}(u_i) + \\epsilon}
+        \varepsilon_{\infty} = \frac{1}{N} \sum_{i=1}^{N}
+            \frac{\max_{x} | \hat{u}_i(x) - u_i(x) |}
+                  {\mathrm{std}(u_i) + \epsilon}
 
     Args:
         pred:   Predicted tensor, shape ``(B, C, *spatial)``.
@@ -186,7 +186,7 @@ def relative_max_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tenso
 
 
 def h1_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
-    """Relative H¹ semi-norm error for 2-D spatial fields.
+    r"""Relative H¹ semi-norm error for 2-D spatial fields.
 
     The H¹ semi-norm adds a gradient penalty on top of the L2 value
     mismatch.  It is the standard "H1 loss" used in the ``neuraloperator``
@@ -200,17 +200,17 @@ def h1_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
 
     .. math::
 
-        \\varepsilon_{H^1} = \\frac{1}{N} \\sum_{i=1}^{N}
-            \\frac{\\lVert \\hat{u}_i - u_i \\rVert_{H^1}}
-                  {\\lVert u_i \\rVert_{H^1} + \\epsilon}
+        \varepsilon_{H^1} = \frac{1}{N} \sum_{i=1}^{N}
+            \frac{\lVert \hat{u}_i - u_i \rVert_{H^1}}
+                  {\lVert u_i \rVert_{H^1} + \epsilon}
 
     where
 
     .. math::
 
-        \\lVert v \\rVert_{H^1}^2
-            = \\lVert v \\rVert_2^2
-            + \\sum_{d} \\lVert \\partial_d v \\rVert_2^2.
+        \lVert v \rVert_{H^1}^2
+            = \lVert v \rVert_2^2
+            + \sum_{d} \lVert \partial_d v \rVert_2^2.
 
     Args:
         pred:   Predicted tensor, shape ``(B, C, *spatial)``.  Must be at
@@ -272,7 +272,7 @@ def ensemble_relative_l2(
         * ``"mean_rel_l2"``   — relative L2 of the ensemble mean.
         * ``"sample_spread"`` — normalised ensemble standard deviation.
         * ``"best_rel_l2"``   — lowest per-sample relative L2 across ensemble
-          members (oracle bound; useful for theoretical analysis).
+            members (oracle bound; useful for theoretical analysis).
     """
     if len(preds) == 0:
         raise ValueError("preds must be a non-empty list of tensors.")

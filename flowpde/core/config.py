@@ -18,12 +18,14 @@ class ConfigDict(dict):
     Dictionary with dot notation access.
     
     Example:
-        >>> cfg = ConfigDict({'model': {'type': 'unet', 'dim': 64}})
-        >>> cfg.model.type  # 'unet'
-        >>> cfg['model']['dim']  # 64
+        ```python
+        cfg = ConfigDict({'model': {'type': 'unet', 'dim': 64}})
+        cfg.model.type      # 'unet'
+        cfg['model']['dim'] # 64
+        ```
     """
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs: Any):
         super().__init__(*args, **kwargs)
         # Convert nested dicts to ConfigDict
         for key, value in self.items():
@@ -282,7 +284,7 @@ class Config:
         
         self._config.merge(other_dict)
     
-    def update(self, **kwargs):
+    def update(self, **kwargs: Any):
         """Update configuration with keyword arguments."""
         if self._frozen:
             raise RuntimeError("Cannot update frozen config")

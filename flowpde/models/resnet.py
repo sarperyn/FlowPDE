@@ -6,7 +6,7 @@ Unlike classification ResNets, this preserves spatial resolution
 (no global pooling) to output full velocity fields.
 """
 
-from typing import Optional, List
+from typing import Any, Optional, List
 
 import torch
 from torch import nn, Tensor
@@ -395,7 +395,7 @@ class ResNet(nn.Module):
         Args:
             x: State x_t, shape (B, C, *spatial) or flattened (B, C*spatial)
             f: Condition, shape (B, C', *spatial) or flattened (B, C'*spatial).
-               Optional when using NullConditioner.
+                Optional when using NullConditioner.
             t: Time t ∈ [0, 1], shape (B,) or (B, 1)
         
         Returns:
@@ -455,7 +455,7 @@ class ResNet(nn.Module):
         )
 
 
-def resnet8(spatial_dim: int, spatial_size: int, **kwargs) -> ResNet:
+def resnet8(spatial_dim: int, spatial_size: int, **kwargs: Any) -> ResNet:
     """ResNet-8: Lightweight model for small grids."""
     return ResNet(
         spatial_dim=spatial_dim,
@@ -466,7 +466,7 @@ def resnet8(spatial_dim: int, spatial_size: int, **kwargs) -> ResNet:
     )
 
 
-def resnet14(spatial_dim: int, spatial_size: int, **kwargs) -> ResNet:
+def resnet14(spatial_dim: int, spatial_size: int, **kwargs: Any) -> ResNet:
     """ResNet-14: Medium model for moderate complexity."""
     return ResNet(
         spatial_dim=spatial_dim,
@@ -477,7 +477,7 @@ def resnet14(spatial_dim: int, spatial_size: int, **kwargs) -> ResNet:
     )
 
 
-def resnet18(spatial_dim: int, spatial_size: int, **kwargs) -> ResNet:
+def resnet18(spatial_dim: int, spatial_size: int, **kwargs: Any) -> ResNet:
     """ResNet-18: Standard model for most PDE problems."""
     return ResNet(
         spatial_dim=spatial_dim,
@@ -488,7 +488,7 @@ def resnet18(spatial_dim: int, spatial_size: int, **kwargs) -> ResNet:
     )
 
 
-def resnet26(spatial_dim: int, spatial_size: int, **kwargs) -> ResNet:
+def resnet26(spatial_dim: int, spatial_size: int, **kwargs: Any) -> ResNet:
     """ResNet-26: Deeper model for complex PDEs."""
     return ResNet(
         spatial_dim=spatial_dim,

@@ -1,0 +1,161 @@
+name: exp03_backbone_ablation_darcy
+seed: 42
+device: auto
+output_dir: results/experiments/exp03_backbone_ablation_darcy
+
+data:
+  generator:
+    num_spatial_dims: 2
+    num_points: 64
+    domain_extent: 1.0
+    num_samples: 3000
+    seed: 42
+    torch_device: cpu
+    obs_noise_std: 0.0
+    obs_mask_fraction: 1.0
+    kappa_alpha: 2.0
+    kappa_tau: 3.0
+    kappa_scale: 1.0
+    kappa_min: 0.1
+    f_cutoff: 8
+    f_amplitude_min: 0.1
+    f_amplitude_max: 5.0
+    cg_steps: 500
+  splits:
+    train: 3000
+    val: 200
+    test: 200
+    train_seed: 101
+    val_seed: 202
+    test_seed: 303
+  loader:
+    batch_size: 16
+    eval_batch_size: 16
+    num_workers: 0
+    pin_memory: false
+    drop_last: false
+
+model:
+  spatial_dim: 2
+  spatial_size: 64
+  solution_channels: 1
+  condition_channels: 2
+  norm_type: group
+  activation: silu
+
+objective:
+  base_distribution: gaussian
+  path: linear
+  time_sampler: uniform
+  coupling: independent
+  source: gaussian
+  sigma: 0.0
+
+training:
+  epochs: 100
+  learning_rate: 0.0002
+  weight_decay: 0.000001
+  optimizer: adamw
+  scheduler: cosine
+  min_learning_rate: 0.000001
+  gradient_clip: 1.0
+  use_amp: false
+  ema_decay: 0.999
+  val_interval: 5
+  monitor: rel_l2
+  monitor_mode: min
+  print_interval: 1
+  save_interval: 10
+
+evaluation:
+  n_steps: 50
+  solver: euler
+  metrics:
+    - rel_l2
+    - h1
+    - mae
+    - rel_max
+  seed: 7
+  ensemble_size: 1
+  val_max_batches: 4
+  test_max_batches:
+  plot_max_batches:
+
+variants:
+  convnet_small:
+    backbone: convnet
+    conditioner: concat
+    seed_offset: 0
+    model:
+      hidden_channels: 48
+      num_blocks: 6
+      kernel_size: 5
+      dropout: 0.0
+  resnet:
+    backbone: resnet
+    conditioner: concat
+    seed_offset: 1000
+    model:
+      base_channels: 48
+      blocks_per_stage: [2, 2, 2]
+      kernel_size: 5
+      downsample: false
+  unet:
+    backbone: unet
+    conditioner: concat
+    seed_offset: 2000
+    model:
+      base_channels: 32
+      max_channels: 256
+      use_attention: true
+  unet_no_attention:
+    backbone: unet
+    conditioner: concat
+    seed_offset: 3000
+    model:
+      base_channels: 32
+      max_channels: 256
+      use_attention: false
+
+quick:
+  output_dir: results/experiments/exp03_backbone_ablation_darcy_quick
+  data:
+    generator:
+      num_points: 32
+      cg_steps: 100
+    splits:
+      train: 16
+      val: 8
+      test: 8
+    loader:
+      batch_size: 4
+      eval_batch_size: 4
+  model:
+    spatial_size: 32
+  training:
+    epochs: 1
+    val_interval: 1
+    save_interval: 1
+  evaluation:
+    n_steps: 2
+    val_max_batches: 1
+    test_max_batches: 1
+    plot_max_batches: 1
+  variants:
+    convnet_small:
+      model:
+        hidden_channels: 12
+        num_blocks: 1
+    resnet:
+      model:
+        base_channels: 12
+        blocks_per_stage: [1]
+    unet:
+      model:
+        base_channels: 8
+        max_channels: 32
+        use_attention: false
+    unet_no_attention:
+      model:
+        base_channels: 8
+        max_channels: 32

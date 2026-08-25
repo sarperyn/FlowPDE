@@ -6,7 +6,7 @@ and compute the corresponding target velocity fields.
 """
 
 from abc import ABC, abstractmethod
-from typing import Tuple, Union
+from typing import Any, Tuple, Union
 
 import torch
 from torch import Tensor
@@ -157,7 +157,7 @@ _PATH_REGISTRY = {
 }
 
 
-def get_path(path: Union[str, PathInterpolant], **kwargs) -> PathInterpolant:
+def get_path(path: Union[str, PathInterpolant], **kwargs: Any) -> PathInterpolant:
     """
     Get a path interpolant by name or return if already an instance.
     

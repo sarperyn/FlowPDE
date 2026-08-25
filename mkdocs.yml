@@ -102,14 +102,16 @@ nav:
   - API Reference:
     - api/index.md
     - Core:
-      - Config: api/core/config.md
       - Base Flow: api/core/base_flow.md
       - Base Solver: api/core/base_solver.md
       - Base Conditioner: api/core/base_conditioner.md
+      - Config: api/core/config.md
     - Flows:
-      - Flow Matching: api/flows/flow_matching.md
-      - CNF: api/flows/cnf.md
+      - NeuralODEFlow: api/flows/neural_ode.md
       - Components: api/flows/components.md
+    - Objectives:
+      - Flow Matching: api/objectives/flow_matching.md
+      - Maximum Likelihood: api/objectives/maximum_likelihood.md
     - Models:
       - MLP: api/models/mlp.md
       - UNet: api/models/unet.md
@@ -120,10 +122,14 @@ nav:
       - ODE Solvers: api/solvers/ode_solvers.md
     - Trainers:
       - Trainer: api/trainers/trainer.md
-      - Flow Trainer: api/trainers/flow_trainer.md
-      - CNF Trainer: api/trainers/cnf_trainer.md
+      - EMA: api/trainers/ema.md
+      - Evaluation: api/trainers/evaluation.md
+      - Reflow: api/trainers/reflow.md
     - Datasets:
-      - Wrappers: api/datasets/wrappers.md
       - Exponax Integration: api/datasets/exponax.md
+      - Normalization: api/datasets/normalization.md
+    - Utils:
+      - Metrics: api/utils/metrics.md
+      - Visualization: api/utils/visualization.md
   - Examples:
     - Notebooks: examples/notebooks.md

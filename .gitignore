@@ -1,13 +1,20 @@
-# Dataset paths
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# OS
+.DS_Store
+
+# Data and run outputs
 /data/datasets
 /dataset_generation
 /checkpoints
-/__pycache__
-/examples
-/docs
 /results
-/configs
-/tests
-/flowpde.egg-info
-.DS_Store
-*.pyc
+/report
+
+# MkDocs build output — the source in docs/ is what belongs in git
+/site
+/.cache

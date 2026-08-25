@@ -28,7 +28,7 @@ class BaseSolver(ABC):
         rtol: float = 1e-5,
         atol: float = 1e-7,
         method_options: Optional[Dict[str, Any]] = None,
-        **kwargs
+        **kwargs: Any
     ):
         """
         Initialize solver.
@@ -50,7 +50,7 @@ class BaseSolver(ABC):
         func: Callable[[Tensor, Tensor], Tensor],
         y0: Tensor,
         t_span: Tuple[float, float],
-        **kwargs
+        **kwargs: Any
     ) -> Union[Tensor, Tuple[Tensor, Dict[str, Any]]]:
         """
         Solve the differential equation $dy/dt = f(t, y)$.
@@ -73,7 +73,7 @@ class BaseSolver(ABC):
         func: Callable[[Tensor, Tensor], Tensor],
         y0: Tensor,
         t_eval: Tensor,
-        **kwargs
+        **kwargs: Any
     ) -> Union[Tensor, Tuple[Tensor, Dict[str, Any]]]:
         """
         Solve and return trajectory at specified time points.
@@ -150,7 +150,7 @@ class ODESolver(BaseSolver):
         method: str,
         rtol: float = 1e-5,
         atol: float = 1e-7,
-        **kwargs
+        **kwargs: Any
     ):
         """
         Initialize ODE solver.
@@ -189,7 +189,7 @@ class SDESolver(BaseSolver):
         noise_type: str = 'diagonal',
         rtol: float = 1e-5,
         atol: float = 1e-7,
-        **kwargs
+        **kwargs: Any
     ):
         """
         Initialize SDE solver.
@@ -212,7 +212,7 @@ class SDESolver(BaseSolver):
         diffusion: Callable[[Tensor, Tensor], Tensor],
         y0: Tensor,
         t_span: Tuple[float, float],
-        **kwargs
+        **kwargs: Any
     ) -> Union[Tensor, Tuple[Tensor, Dict[str, Any]]]:
         """
         Solve SDE: dy = drift(t, y)dt + diffusion(t, y)dW.

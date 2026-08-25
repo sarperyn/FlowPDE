@@ -27,7 +27,7 @@ several fields) before computing errors.
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import torch
 from torch import Tensor
@@ -75,7 +75,7 @@ class FieldNormalizer:
     @classmethod
     def from_dataset(
         cls,
-        dataset,
+        dataset: "Any",
         fields: Optional[Iterable[str]] = None,
         eps: float = 1e-8,
     ) -> "FieldNormalizer":

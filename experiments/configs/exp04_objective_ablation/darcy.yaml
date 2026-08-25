@@ -1,0 +1,173 @@
+name: exp04_objective_ablation_darcy
+seed: 42
+device: auto
+output_dir: results/experiments/exp04_objective_ablation_darcy
+
+data:
+  generator:
+    num_spatial_dims: 2
+    num_points: 16
+    domain_extent: 1.0
+    num_samples: 3000
+    seed: 42
+    torch_device: cpu
+    obs_noise_std: 0.0
+    obs_mask_fraction: 1.0
+    kappa_alpha: 2.0
+    kappa_tau: 3.0
+    kappa_scale: 1.0
+    kappa_min: 0.1
+    f_cutoff: 4
+    f_amplitude_min: 0.1
+    f_amplitude_max: 5.0
+    cg_steps: 500
+  splits:
+    train: 3000
+    val: 200
+    test: 200
+    train_seed: 101
+    val_seed: 202
+    test_seed: 303
+  loader:
+    batch_size: 8
+    eval_batch_size: 8
+    num_workers: 0
+    pin_memory: false
+    drop_last: false
+
+model:
+  backbone: unet
+  spatial_dim: 2
+  spatial_size: 16
+  solution_channels: 1
+  condition_channels: 2
+  base_channels: 8
+  max_channels: 64
+  use_attention: false
+  norm_type: group
+  activation: silu
+
+objective:
+  name: flow_matching
+  base_distribution: gaussian
+  trace_estimator: hutchinson
+  n_trace_samples: 1
+  ode_method: rk4
+  ode_n_steps: 8
+  use_adjoint: false
+  ode_rtol: 0.00001
+  ode_atol: 0.0000001
+  path: linear
+  time_sampler: uniform
+  coupling: independent
+  source: gaussian
+  sigma: 0.0
+  regularization: 0.0
+  normalize_by_dim: true
+
+training:
+  epochs: 50
+  learning_rate: 0.0002
+  weight_decay: 0.000001
+  optimizer: adamw
+  scheduler: cosine
+  min_learning_rate: 0.000001
+  gradient_clip: 1.0
+  use_amp: false
+  ema_decay: 0.999
+  val_interval: 5
+  monitor: rel_l2
+  monitor_mode: min
+  print_interval: 1
+  save_interval: 5
+
+evaluation:
+  n_steps: 16
+  solver: rk4
+  metrics:
+    - rel_l2
+    - h1
+    - mae
+    - rel_max
+  seed: 7
+  ensemble_size: 1
+  val_max_batches: 2
+  test_max_batches:
+  nll_max_batches: 2
+  plot_max_batches: 4
+
+variants:
+  flow_matching:
+    objective:
+      name: flow_matching
+      trace_estimator: hutchinson
+      n_trace_samples: 1
+      ode_method: rk4
+      ode_n_steps: 8
+    seed_offset: 0
+  mle_hutchinson_1:
+    objective:
+      name: maximum_likelihood
+      trace_estimator: hutchinson
+      n_trace_samples: 1
+      ode_method: rk4
+      ode_n_steps: 8
+      regularization: 0.33
+    seed_offset: 1000
+  mle_hutchinson_2:
+    objective:
+      name: maximum_likelihood
+      trace_estimator: hutchinson
+      n_trace_samples: 2
+      ode_method: rk4
+      ode_n_steps: 8
+      regularization: 0.0001
+    seed_offset: 2000
+  mle_hutchinson_4:
+    objective:
+      name: maximum_likelihood
+      trace_estimator: hutchinson
+      n_trace_samples: 4
+      ode_method: rk4
+      ode_n_steps: 8
+      regularization: 0.0001
+    seed_offset: 2000
+
+quick:
+  output_dir: results/experiments/exp04_objective_ablation_darcy_quick
+  data:
+    generator:
+      num_points: 16
+      cg_steps: 50
+    splits:
+      train: 8
+      val: 4
+      test: 4
+    loader:
+      batch_size: 1
+      eval_batch_size: 1
+  model:
+    spatial_size: 16
+    base_channels: 4
+    max_channels: 8
+    use_attention: false
+  training:
+    epochs: 1
+    val_interval: 1
+    save_interval: 1
+  evaluation:
+    n_steps: 2
+    val_max_batches: 1
+    test_max_batches: 1
+    nll_max_batches: 1
+    plot_max_batches: 1
+  variants:
+    flow_matching:
+      objective:
+        n_trace_samples: 1
+    mle_hutchinson_1:
+      objective:
+        n_trace_samples: 1
+    mle_hutchinson_4:
+      objective:
+        n_trace_samples: 1

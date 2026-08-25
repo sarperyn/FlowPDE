@@ -45,7 +45,7 @@ class PoissonConfig(GenerationConfig):
 
 
 class PoissonGenerator(ExponaxDatasetGenerator):
-    """
+    r"""
     Generate Poisson equation datasets using Exponax.
 
     Workflow:

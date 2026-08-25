@@ -2,11 +2,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import torch
-from typing import Optional
+from typing import Any, Optional, Sequence
 
 
 def plot_curve(
-    epoch_losses,
+    epoch_losses: Sequence[float],
     title: str = "Training Loss",
     xlabel: str = "Epoch",
     ylabel: str = "Loss",
@@ -43,8 +43,8 @@ def plot_curve(
 
 @torch.no_grad()
 def visualize_flow_evolution(
-    model,
-    dataloader,
+    model: torch.nn.Module,
+    dataloader: Any,
     fig_path: str,
     n_steps: int = 10,
     n_samples: int = 4,

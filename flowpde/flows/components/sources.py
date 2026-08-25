@@ -189,7 +189,7 @@ _SOURCE_REGISTRY = {
 
 
 def get_source(
-    source: Union[str, SourceDistribution], **kwargs
+    source: Union[str, SourceDistribution], **kwargs: Any
 ) -> SourceDistribution:
     """
     Get a source distribution by name, or pass an instance through.

@@ -8,7 +8,7 @@ and can compute exact log probabilities via the instantaneous change of variable
 import torch
 import torch.nn as nn
 from torch import Tensor
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from flowpde.core.base_flow import BaseFlow
 
@@ -315,7 +315,7 @@ class NeuralODEFlow(BaseFlow):
         solver: str = 'dopri5',
         x_init: Optional[Tensor] = None,
         target_shape: Optional[Union[int, Tuple[int, ...]]] = None,
-        **solver_kwargs
+        **solver_kwargs: Any
     ) -> Tensor:
         """
         Sample from the learned distribution.
@@ -368,7 +368,7 @@ class NeuralODEFlow(BaseFlow):
         self,
         x: Tensor,
         condition: Tensor,
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Compute log probability of data.
@@ -411,7 +411,7 @@ class NeuralODEFlow(BaseFlow):
         self,
         x: Tensor,
         condition: Optional[Tensor] = None,
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Forward transformation: data -> latent (backward ODE).
@@ -442,7 +442,7 @@ class NeuralODEFlow(BaseFlow):
         self,
         z: Tensor,
         condition: Optional[Tensor] = None,
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Inverse transformation: latent -> data (forward ODE).

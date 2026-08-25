@@ -6,7 +6,7 @@ during training. Different couplings can affect training efficiency.
 """
 
 from abc import ABC, abstractmethod
-from typing import Tuple, Union
+from typing import Any, Tuple, Union
 
 import torch
 from torch import Tensor
@@ -161,7 +161,7 @@ _COUPLING_REGISTRY = {
 
 def get_coupling(
     coupling: Union[str, Coupling], 
-    **kwargs
+    **kwargs: Any
 ) -> Coupling:
     """
     Get a coupling strategy by name or return if already an instance.

@@ -45,6 +45,19 @@ from .utils import (
     find_latest_checkpoint,
 )
 
+# Uncertainty quantification metrics
+from .uq_metrics import (
+    UQMetrics,
+    credible_interval_coverage,
+    crps_ensemble,
+    energy_score,
+    error_spread_correlation,
+    rank_histogram,
+    reliability_curve,
+    spread_skill_ratio,
+    variance_decomposition,
+)
+
 # Inference config creation
 from .generate_inference_config import (
     create_inference_config,
@@ -77,6 +90,17 @@ __all__ = [
     "print_stats",
     "load_class",
     "find_latest_checkpoint",
+
+    # Uncertainty quantification
+    "UQMetrics",
+    "credible_interval_coverage",
+    "crps_ensemble",
+    "energy_score",
+    "error_spread_correlation",
+    "rank_histogram",
+    "reliability_curve",
+    "spread_skill_ratio",
+    "variance_decomposition",
 
     # Inference config
     "create_inference_config",

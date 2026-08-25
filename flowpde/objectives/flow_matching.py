@@ -149,7 +149,7 @@ class FlowMatchingObjective(nn.Module):
         batch: Dict[str, Tensor],
         target_key: Optional[str] = None,
         condition_key: Optional[str] = None,
-        **kwargs
+        **kwargs: Any
     ) -> Tensor:
         """
         Compute flow matching loss.
@@ -214,7 +214,7 @@ class FlowMatchingObjective(nn.Module):
         x_init: Optional[Tensor] = None,
         target_shape: Optional[Union[int, Tuple[int, ...]]] = None,
         return_trajectory: bool = False,
-        **solver_kwargs
+        **solver_kwargs: Any
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
         Generate samples by solving the flow ODE.
@@ -320,8 +320,8 @@ class FlowMatchingObjective(nn.Module):
 
             - ``'straightness'``: the integral above (0 = perfectly straight).
             - ``'normalized_straightness'``: divided by the mean squared chord
-              length, making it dimensionless and comparable across datasets
-              and normalization choices.
+                length, making it dimensionless and comparable across datasets
+                and normalization choices.
             - ``'chord_norm'``: mean chord length, for reference.
         """
         if mode not in {"trajectory", "interpolant"}:
@@ -429,7 +429,7 @@ class FlowMatchingObjective(nn.Module):
 def create_flow_matching(
     flow: NeuralODEFlow,
     variant: str = "standard",
-    **kwargs
+    **kwargs: Any
 ) -> FlowMatchingObjective:
     """
     Create a flow matching objective with preset configurations.

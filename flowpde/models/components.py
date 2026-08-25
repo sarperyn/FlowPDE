@@ -9,7 +9,7 @@ This module contains reusable building blocks used across all architectures:
 """
 
 import math
-from typing import Union, Tuple, Optional, Type
+from typing import Any, Union, Tuple, Optional, Type
 from functools import partial
 
 import torch
@@ -45,7 +45,7 @@ def get_activation(name: str = "silu") -> nn.Module:
 
 
 class FourierTimeEmbedding(nn.Module):
-    """
+    r"""
     Sinusoidal time embedding for flow matching and diffusion models.
     
     Maps scalar time $$t \in [0, 1]$$ to high-dimensional feature vector using
@@ -152,7 +152,7 @@ def get_norm_layer(
     norm_type: str,
     num_features: int,
     spatial_dim: int = 2,
-    **kwargs
+    **kwargs: Any
 ) -> nn.Module:
     """
     Factory function for normalization layers.

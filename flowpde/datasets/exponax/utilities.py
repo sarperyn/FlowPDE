@@ -8,14 +8,14 @@ conversions and normalization stats.
 
 import numpy as np
 import torch
-from typing import Union, Optional
+from typing import Any, Union, Optional
 
 
 DeviceType = Union[str, torch.device]
 
 
 def jax_to_torch(
-    jax_array,
+    jax_array: "Any",
     device: DeviceType = 'cpu',
     dtype: Optional[torch.dtype] = torch.float32,
 ) -> torch.Tensor:
@@ -41,7 +41,7 @@ def jax_to_torch(
     return tensor
 
 
-def torch_to_jax(tensor: torch.Tensor, dtype: Optional[str] = 'float32'):
+def torch_to_jax(tensor: torch.Tensor, dtype: Optional[str] = 'float32') -> "Any":
     """
     Convert a PyTorch tensor to a JAX array.
 
