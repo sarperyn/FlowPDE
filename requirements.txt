@@ -8,3 +8,4 @@ matplotlib
 scipy
 jax>=0.4.12
 exponax>=0.1.0
+seaborn
