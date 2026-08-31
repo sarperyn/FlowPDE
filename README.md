@@ -5,9 +5,7 @@
 FlowPDE is a PyTorch library for learning conditional distributions between PDE
 fields. It combines flow matching with neural ODEs to solve forward problems and inverse problems.
 
-[Documentation](https://sarperyn.github.io/FlowPDE/) ·
-[Quickstart](https://sarperyn.github.io/FlowPDE/getting_started/quickstart/) ·
-Project report coming soon
+[Project report](report.pdf)
 
 ## What is included
 
@@ -46,8 +44,9 @@ python -m pip install -e . --no-deps
 
 FlowPDE requires Python 3.11 or newer. The `uv` path uses the versions recorded in
 `uv.lock`; the pip path installs the runtime dependencies from `requirements.txt`.
-See the [installation guide](https://sarperyn.github.io/FlowPDE/getting_started/installation/)
-for CUDA/JAX and optional dependencies.
+For CUDA/JAX and the optional dependencies, see the installation guide in the
+documentation — `docs/getting_started/installation.md`, or build the site locally as
+described under [Documentation](#documentation).
 
 ## Quick Example
 
@@ -81,45 +80,165 @@ batch = next(iter(loader))
 samples = objective.sample(batch["input"], n_steps=50).view_as(batch["target"])
 ```
 
-The [full quickstart](https://sarperyn.github.io/FlowPDE/getting_started/quickstart/)
-adds validation, checkpointing, and evaluation in physical units.
+The full quickstart — `docs/getting_started/quickstart.md` — adds validation,
+checkpointing, and evaluation in physical units.
 
-## Representative Results
+## Results
 
-### Burgers
+Every comparison below varies **one** axis with everything else held fixed — data,
+splits, normalization, optimizer, schedule, averaging, sampler and evaluation seed —
+so a difference between two numbers is attributable to the thing being varied. Errors
+are relative $L^2$ in physical units on a held-out test split.
 
-For the 1D Burgers forward problem, FlowPDE learns the map from an initial state
-$u(x,0)$ to the evolved state $u(x,T)$. The ConvNet experiment reaches a test
-relative $L^2$ error of **0.021**; the example below has an error of **0.018**.
+### Inverse problems: a posterior, not a point estimate
+
+This is the case the library is really built for. Given a sparse, noisy observation of
+the solution $u$, the model is asked to recover the Darcy coefficient $\kappa$ — a
+problem whose answer is genuinely a distribution, not a field. Sampling the conditional
+flow $K = 32$ times gives an ensemble whose spread concentrates where the data leave
+$\kappa$ underdetermined.
+
+![Inverse Darcy posterior samples](docs/assets/readme/inverse-posterior.png)
+
+Scoring that ensemble as a distribution rather than scoring one draw as a point estimate
+changes the conclusion. Proper scoring rules register roughly **twice** the effect of
+conditioning that a single draw's relative $L^2$ does (18.6% against 12.8% on the
+coefficient target, 25.4% against 13.8% on the joint one) — a metric comparing one
+sample against one truth cannot distinguish a model that learned a broad posterior from
+one that learned nothing. The same suite catches a failure a point metric rewards:
+training the coefficient model five times longer improved its single-draw error by 15%
+while moving its 90% coverage from 0.84 to 0.70.
+
+Without ever being told that $\kappa$ is identifiable only where $\nabla u$ is large,
+the learned posterior width falls by **3.9×** from the flattest to the steepest decile
+of local flux.
+
+### The sampler is an axis, not a detail
+
+Solver and step count are call-time arguments on frozen weights, so the whole sweep runs
+without retraining anything.
+
+![Accuracy against sampling cost](docs/assets/readme/sampling-cost.png)
+
+First-order Euler beats fourth-order Runge–Kutta at matched cost on every model and both
+problems, by up to **8.6×**: a high-order tableau earns its order by probing the velocity
+field away from the trajectory, and a learned field is not accurate there. Integrating to
+convergence is also not the objective — on two of eight models the best fixed-step error
+is 6–11% *below* the converged one, because truncation error partially cancels the
+model's. An accuracy quoted "at 50 steps" is one point on a non-monotone, model-dependent
+curve.
+
+### Forward problems
+
+The forward direction is reported as verification rather than as the case for the method.
+Timed against the conjugate-gradient solver it replaces, the surrogate is 1.9× slower at
+its cheapest setting and 65× at its most accurate; on a linear elliptic problem at this
+size it does not pay for itself.
+
+For 1D Burgers, the map from an initial state $u(x,0)$ to the evolved state $u(x,T)$
+reaches a test relative $L^2$ of **0.022** with a ConvNet backbone.
 
 ![Burgers forward prediction and error](docs/assets/readme/burgers-forward.png)
 
-### Poisson
-
-For the 2D Poisson forward problem, the model maps a source field $f$ to its solution
-$u$. In the harder eight-mode source regime, the ConvNet reaches a test relative
-$L^2$ error of **0.078**. The example below shows the source, reference solution,
-generated solution, and pointwise error.
+For 2D Poisson, mapping a source $f$ to its solution $u$ in the harder eight-mode source
+regime reaches **0.077**. Widening the source spectrum alone raises the ConvNet's error
+by **43%** — an operator-learning number is a joint statement about the method and the
+distribution it was measured on, so the harder regime is the one quoted here.
 
 ![Poisson forward prediction and error](docs/assets/readme/poisson-forward.png)
 
-These are single-seed results evaluated in physical units with 50 Euler steps. See
-the [documentation](https://sarperyn.github.io/FlowPDE/) for the training and
-evaluation workflow. The complete experimental setup and discussion will be included
-in the forthcoming project report.
+### What else the experiments found
 
-## Tests and Documentation
+- **Conditioning.** Replacing the conditioner with one that discards its input costs a
+  factor of **17** in median relative $L^2$ while leaving the training loss curve looking
+  healthy — the concrete case for selecting on sampled error, never on the loss.
+- **Backbone.** The smallest of four backbones is the most accurate on both forward
+  problems, by **12.4×** on Burgers, and attention changes nothing beyond seed noise.
+  Capacity is not the binding constraint at this scale.
+- **Objective.** Fitting the same flow by exact maximum likelihood rather than flow
+  matching improves test likelihood from $-1.21$ to $-1.86$ nats/dim while degrading
+  sample accuracy from 0.61 to 1.06 relative $L^2$, at **70×** the wall-clock and 8.9× the
+  memory. Each objective wins on the metric it optimizes.
+- **Amortization.** A preconditioned Crank–Nicolson reference chain had not mixed after
+  52,000 forward solves per observation, costing 701 s per observation and producing
+  nothing usable; the trained flow produced its 32-member ensemble in **16 s** and needed
+  no forward solves at all.
+
+Because the flow, objective, conditioner, backbone and solver are orthogonal components
+rather than forks of a codebase, every comparison above was a configuration change, and
+the sampler and ensemble results required no retraining at all.
+
+Single-seed unless stated otherwise; five of the nine experiments are replicated at three
+matched seeds. Full setup, ablations, and the negative results are in the
+[project report](report.pdf) (24 pp.).
+
+
+## Tests
+
+The suite covers the flow, the objectives, the solvers, EMA, normalization, reflow,
+straightness, and the UQ metrics, plus integration tests that generate real datasets
+through Exponax. Those are marked `slow` because they run the PDE solvers.
 
 ```bash
-uv sync --extra dev --extra docs
+uv sync --extra dev                 # installs pytest
 
 uv run -m pytest                    # full suite
 uv run -m pytest -m "not slow"      # skip the Exponax integration tests
-
-uv run mkdocs serve                 # preview at http://127.0.0.1:8000
-uv run mkdocs build --strict
+uv run -m pytest tests/test_trainer.py -v
 ```
+
+## Documentation
+
+The documentation is built with MkDocs using the Material theme, and API pages are
+generated from the docstrings by `mkdocstrings`, so they track the code rather than being
+written twice.
+
+![FlowPDE documentation, API reference page](docs/assets/readme/documentation.png)
+
+> **Not currently hosted.** This documentation was going to be published on GitHub Pages,
+> but I have lost access to GitHub Pro and am waiting for a new approval, so the site is
+> not online for now. Until then, build it locally with the commands below — the content
+> is complete, it simply has nowhere public to live yet.
+
+The source lives under `docs/`, organised as:
+
+- **Getting Started** — installation, including the CUDA/JAX and optional dependencies,
+  and a quickstart that extends the example above with validation, checkpointing, and
+  evaluation in physical units.
+- **Concepts** — an architecture overview of how flows, objectives, conditioners,
+  backbones and solvers fit together, and a flow-matching explainer.
+- **API Reference** — every public class, generated from source.
+- **Examples** — the notebooks under `notebooks/`, rendered.
+
+To build it locally:
+
+```bash
+uv sync --extra docs                # mkdocs-material, mkdocstrings, mkdocs-jupyter
+
+uv run mkdocs serve                 # live-reloading preview at http://127.0.0.1:8000
+uv run mkdocs build --strict        # build into site/; --strict fails on bad links
+```
+
+`mkdocs serve` rebuilds on save, so editing anything under `docs/` — or any docstring an
+API page pulls from — refreshes the open page. Use `--strict` before publishing: it turns
+a broken cross-reference or a missing nav entry into an error instead of a warning.
 
 ## License
 
-[MIT](LICENSE)
+MIT License. Copyright (c) 2025 Sarper Yurtseven.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
+to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
