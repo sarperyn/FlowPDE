@@ -208,10 +208,22 @@ def spread_skill_ratio(
 ) -> Dict[str, float]:
     """Ensemble spread compared against the error of the ensemble mean.
 
-    A calibrated ensemble has spread comparable to its own error.  With a
-    finite ensemble of ``K`` members the expected ratio is
-    :math:`\\sqrt{(K+1)/K}` rather than exactly 1, so a bias-adjusted value is
-    reported alongside the raw one.
+    A calibrated ensemble has spread comparable to its own error, but only in
+    the limit.  A finite ensemble of ``K`` members *under*-estimates the spread
+    of the distribution it is drawn from: when the truth is exchangeable with
+    the members, Fortin et al. (2014) give
+
+    .. math::
+
+        \\mathbb{E}[\\text{RMSE of the mean}]
+            = \\sqrt{\\tfrac{K+1}{K}} \\; \\mathbb{E}[\\text{spread}],
+
+    so the raw ratio :math:`\\text{spread}/\\text{skill}` sits at
+    :math:`\\sqrt{K/(K+1)} < 1` even for a perfectly calibrated ensemble.
+    ``adjusted_ratio`` therefore *multiplies* the raw ratio by
+    :math:`\\sqrt{(K+1)/K}`, landing at 1 when calibrated.  The correction is
+    negligible at ``K = 50`` (2 %) and substantial at ``K = 2`` (22 %), which
+    is why its direction has to be pinned by a small-``K`` test.
 
     Returns:
         ``{'spread', 'skill', 'ratio', 'adjusted_ratio'}``.  ``adjusted_ratio``
@@ -232,7 +244,7 @@ def spread_skill_ratio(
         "spread": spread.item(),
         "skill": skill.item(),
         "ratio": ratio,
-        "adjusted_ratio": ratio / correction,
+        "adjusted_ratio": ratio * correction,
     }
 
 
@@ -320,9 +332,12 @@ def energy_score(samples: SampleInput, target: Tensor) -> Tensor:
 
     error_term = (flat - flat_target.unsqueeze(0)).norm(dim=2).mean(dim=0)  # (B,)
 
-    # Pairwise distances between members: (K, K, B) — cheap, K is small.
-    diffs = flat.unsqueeze(1) - flat.unsqueeze(0)
-    pairwise = diffs.norm(dim=3).sum(dim=(0, 1)) / (num_members * (num_members - 1))
+    # Pairwise distances between members.  Broadcasting to (K, K, B, D) is the
+    # obvious way and allocates K^2 copies of the batch: at K = 32 on a 64x64
+    # two-field target that is 2 GB, for a result of size (B, K, K).  cdist
+    # computes the same distances without materializing the differences.
+    pairwise = torch.cdist(flat.transpose(0, 1), flat.transpose(0, 1))  # (B,K,K)
+    pairwise = pairwise.sum(dim=(1, 2)) / (num_members * (num_members - 1))
 
     return (error_term - 0.5 * pairwise).mean()
 

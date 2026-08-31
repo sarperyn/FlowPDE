@@ -224,6 +224,25 @@ def test_spread_skill_ratio_detects_overconfidence():
     assert spread_skill_ratio(narrow, target)["adjusted_ratio"] < 0.5
 
 
+@pytest.mark.parametrize("num_members", [2, 4, 8, 32])
+def test_finite_ensemble_correction_points_the_right_way(num_members):
+    """Pins the *direction* of the sqrt((K+1)/K) correction.
+
+    A K-member ensemble under-estimates the spread of the distribution it is
+    drawn from, so the raw ratio sits below 1 and the correction must multiply
+    it back up.  At K=50 the two directions differ by 2% and any reasonable
+    tolerance accepts both — the error is only visible at small K, where
+    dividing instead of multiplying gives 0.67 rather than 1.0 for a perfectly
+    calibrated ensemble.
+    """
+    samples, target = calibrated_ensemble(num_members=num_members, batch=4096)
+    result = spread_skill_ratio(samples, target)
+
+    assert result["ratio"] < 1.0
+    assert result["adjusted_ratio"] == pytest.approx(1.0, abs=0.05)
+    assert result["adjusted_ratio"] > result["ratio"]
+
+
 # Decomposition
 
 
