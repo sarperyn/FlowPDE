@@ -1,8 +1,10 @@
-matplotlib==3.10.7
-numpy==2.3.4
-PyYAML==6.0.3
-scipy==1.16.2
-torch==2.9.0
+# Runtime dependencies. Keep this list aligned with [project.dependencies]
+# in pyproject.toml.
+torch>=2.0.0
 torchdiffeq>=0.2.4
-exponax>=0.1.0
+numpy
+PyYAML>=6.0
+matplotlib
+scipy
 jax>=0.4.12
+exponax>=0.1.0

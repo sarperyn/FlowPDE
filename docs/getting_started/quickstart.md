@@ -207,8 +207,9 @@ with open("results/poisson_forward/config.json", "w") as fh:
     json.dump(objective.get_config(), fh, indent=2)
 ```
 
-Named, citable dataset configs live in `configs/benchmark_configs.py` — prefer those
-for reported results.
+Save the resolved dataset and objective configuration with each run so reported
+results can be reproduced. The project report documents the benchmark configurations
+used for its results.
 
 ## Next Steps
 

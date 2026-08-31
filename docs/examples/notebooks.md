@@ -15,10 +15,9 @@ the right starting point for understanding what the flow is being asked to learn
     Source → solution pairs for $\nabla^2 u = f$: generation, statistics, and sample
     visualization.
 
--   :material-notebook: **[Poisson 2D — Dataset Deep Dive](https://github.com/sarperyn/FlowPDE/blob/main/notebooks/poisson_2d_dataset_visualization.ipynb)**
+-   :material-notebook: **[Poisson](https://github.com/sarperyn/FlowPDE/blob/main/notebooks/poisson.ipynb)**
 
-    A closer look at the 2D Poisson data, including the structure of the source
-    distribution.
+    An end-to-end 2D Poisson workflow, from dataset generation to learned solutions.
 
 -   :material-notebook: **[Burgers Dataset — EDA](https://github.com/sarperyn/FlowPDE/blob/main/notebooks/burgers_dataset.ipynb)**
 
@@ -39,10 +38,6 @@ the right starting point for understanding what the flow is being asked to learn
     Variable-coefficient Poisson, $-\nabla \cdot (\kappa \nabla u) = f$ — the setting
     where the inverse problem has a genuinely non-degenerate posterior.
 
--   :material-notebook: **[Playground](https://github.com/sarperyn/FlowPDE/blob/main/notebooks/playground.ipynb)**
-
-    Scratch space for experiments.
-
 </div>
 
 !!! note "On the Poisson source distribution"
@@ -58,8 +53,5 @@ pip install -e ".[docs]"   # includes jupyter via mkdocs-jupyter
 jupyter notebook notebooks/
 ```
 
-## Experiments
-
-Ablation studies live in [`experiments/`](https://github.com/sarperyn/FlowPDE/tree/main/experiments)
-rather than in notebooks — conditioning, backbone, and objective ablations across
-Burgers and Darcy.
+Detailed ablations and benchmark configurations will be documented in the project
+report. The notebooks remain the public, runnable examples for the library.

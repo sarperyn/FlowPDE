@@ -7,8 +7,7 @@ fields. It combines flow matching with neural ODEs to solve forward problems and
 
 [Documentation](https://sarperyn.github.io/FlowPDE/) ·
 [Quickstart](https://sarperyn.github.io/FlowPDE/getting_started/quickstart/) ·
-[Project report](report/main.pdf) ·
-[Experiments](experiments/README.md)
+Project report coming soon
 
 ## What is included
 
@@ -17,11 +16,13 @@ fields. It combines flow matching with neural ODEs to solve forward problems and
 - Forward and inverse datasets, including noisy and partial observations
 - Flow matching and maximum-likelihood objectives over the same `NeuralODEFlow`
 - MLP, ConvNet, ResNet, and UNet backbone neural network models
-- ODE sampling, EMA training, evaluation in physical uni ts, and reflow
+- ODE sampling, EMA training, evaluation in physical units, and reflow
 
 ![FlowPDE benchmark mappings](docs/assets/readme/benchmarks.png)
 
 ## Setup
+
+With [uv](https://docs.astral.sh/uv/) (recommended):
 
 ```bash
 git clone https://github.com/sarperyn/FlowPDE.git
@@ -31,10 +32,22 @@ uv sync
 source .venv/bin/activate
 ```
 
-The repository pins Python 3.11, which satisfies the package requirement of Python
-3.11 or newer. `uv sync` creates `.venv` and installs the versions recorded in
-`uv.lock`. See the [installation guide](https://sarperyn.github.io/FlowPDE/getting_started/installation/)
-for pip, CUDA/JAX, and optional dependencies.
+Without `uv`, use Python's built-in virtual environment and pip:
+
+```bash
+git clone https://github.com/sarperyn/FlowPDE.git
+cd FlowPDE
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -e . --no-deps
+```
+
+FlowPDE requires Python 3.11 or newer. The `uv` path uses the versions recorded in
+`uv.lock`; the pip path installs the runtime dependencies from `requirements.txt`.
+See the [installation guide](https://sarperyn.github.io/FlowPDE/getting_started/installation/)
+for CUDA/JAX and optional dependencies.
 
 ## Quick Example
 
@@ -91,9 +104,9 @@ generated solution, and pointwise error.
 ![Poisson forward prediction and error](docs/assets/readme/poisson-forward.png)
 
 These are single-seed results evaluated in physical units with 50 Euler steps. See
-the [Burgers experiment](experiments/exp02_backbone_ablation_burgers/README.md),
-[Poisson configuration](experiments/configs/exp10_poisson_forward/poisson.yaml), and
-[project report](report/main.pdf) for details.
+the [documentation](https://sarperyn.github.io/FlowPDE/) for the training and
+evaluation workflow. The complete experimental setup and discussion will be included
+in the forthcoming project report.
 
 ## Tests and Documentation
 
