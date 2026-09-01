@@ -16,7 +16,9 @@ fields. It combines flow matching with neural ODEs to solve forward problems and
 - MLP, ConvNet, ResNet, and UNet backbone neural network models
 - ODE sampling, EMA training, evaluation in physical units, and reflow
 
-![FlowPDE benchmark mappings](docs/assets/readme/benchmarks.png)
+Each of the six problem settings is drawn out under
+[Problem settings](#problem-settings); the measured results are under
+[Results](#results).
 
 ## Setup
 
@@ -82,6 +84,66 @@ samples = objective.sample(batch["input"], n_steps=50).view_as(batch["target"])
 
 The full quickstart — `docs/getting_started/quickstart.md` — adds validation,
 checkpointing, and evaluation in physical units.
+
+## Notebooks
+
+Six runnable notebooks in [`notebooks/`](notebooks/) pick up where the snippet above
+stops:
+
+- **Dataset exploration** — [`poisson_dataset.ipynb`](notebooks/poisson_dataset.ipynb),
+  [`burgers_dataset.ipynb`](notebooks/burgers_dataset.ipynb),
+  [`darcy_dataset.ipynb`](notebooks/darcy_dataset.ipynb): generate a dataset, report its
+  field statistics, and plot samples — the quickest way to see what the flow is being
+  asked to learn.
+- **End to end** — [`poisson.ipynb`](notebooks/poisson.ipynb),
+  [`burgers.ipynb`](notebooks/burgers.ipynb), [`darcy.ipynb`](notebooks/darcy.ipynb):
+  generate data, build the flow, train it, and sample conditioned solutions.
+
+The lockfile installs the kernel but not a Jupyter front-end, so either open the files
+directly in an editor that renders notebooks, or bring one along for the run:
+
+```bash
+uv run --with jupyterlab jupyter lab notebooks/
+```
+
+## Problem settings
+
+Every PDE is available in both directions: `problem='forward'` and `problem='inverse'`
+are arguments on the same generator, and all six settings are trained as the same
+conditional flow. What changes between them is which fields are handed to the model as
+conditioning and which field it has to generate.
+
+Each figure below reads the same way. The left zone is the conditioning input $c$,
+channel by channel. The right zone is the probability path the flow transports: a draw
+from the base distribution at $t=0$, the interpolant at $t=0.5$, and the target at
+$t=1$. What is learned is the velocity field $v_\theta(x, t \mid c)$ connecting them,
+and sampling is one ODE solve. The footer of each figure is the generator call that
+produced the fields shown.
+
+### Poisson — $\nabla^2 u = f$
+
+![Poisson forward: source to solution](docs/assets/readme/tasks/poisson-forward.png)
+
+![Poisson inverse: noisy solution to source](docs/assets/readme/tasks/poisson-inverse.png)
+
+### Burgers — $\partial_t u + u \partial_x u = \nu \partial_x^2 u$
+
+![Burgers forward: initial state to final state](docs/assets/readme/tasks/burgers-forward.png)
+
+![Burgers inverse: noisy final state to initial state](docs/assets/readme/tasks/burgers-inverse.png)
+
+### Darcy — $-\nabla \cdot (\kappa \nabla u) = f$
+
+![Darcy forward: coefficient and source to solution](docs/assets/readme/tasks/darcy-forward.png)
+
+![Darcy inverse: sparse noisy solution to coefficient](docs/assets/readme/tasks/darcy-inverse.png)
+
+The Darcy inverse problem has three variants, selected with `inverse_mode`: recover the
+coefficient $\kappa$ from $(u, f)$, recover the source $f$ from $(u, \kappa)$, or
+recover both jointly from $u$ alone. Observations are degraded independently of the
+direction — `obs_noise_std` adds Gaussian noise and `obs_mask_fraction` hides a random
+fraction of the grid, appending the observation mask as an extra conditioning channel.
+
 
 ## Results
 
@@ -222,6 +284,63 @@ uv run mkdocs build --strict        # build into site/; --strict fails on bad li
 `mkdocs serve` rebuilds on save, so editing anything under `docs/` — or any docstring an
 API page pulls from — refreshes the open page. Use `--strict` before publishing: it turns
 a broken cross-reference or a missing nav entry into an error instead of a warning.
+
+## Credits
+
+No third-party source is vendored into this repository — every module under `flowpde/`
+was written for it, and the MIT licence below covers the whole tree. What the library
+does borrow is *methods*: formulas, schedules and architectures taken from the
+literature and implemented here from the papers.
+
+### Methods implemented from the literature
+
+| Component | Implements | Source |
+| --- | --- | --- |
+| [`flows/neural_ode.py`](flowpde/flows/neural_ode.py) | Continuous normalizing flow; instantaneous change of variables | Chen et al., *Neural Ordinary Differential Equations*, NeurIPS 2018 · Grathwohl et al., *FFJORD*, ICLR 2019 |
+| [`flows/neural_ode.py`](flowpde/flows/neural_ode.py) | Stochastic trace estimator | Hutchinson, *A Stochastic Estimator of the Trace of the Influence Matrix*, Commun. Stat. 1989 |
+| [`objectives/maximum_likelihood.py`](flowpde/objectives/maximum_likelihood.py) | Maximum-likelihood training of a CNF | Rezende & Mohamed, *Variational Inference with Normalizing Flows*, ICML 2015 · Grathwohl et al., ICLR 2019 |
+| [`objectives/flow_matching.py`](flowpde/objectives/flow_matching.py), [`flows/components/paths.py`](flowpde/flows/components/paths.py) | Flow-matching objective; linear and OT-conditional paths | Lipman et al., *Flow Matching for Generative Modeling*, ICLR 2023 · Liu et al., *Rectified Flow*, ICLR 2023 · Tong et al., *Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport*, TMLR 2024 |
+| [`flows/components/couplings.py`](flowpde/flows/components/couplings.py) | Mini-batch optimal-transport coupling | Tong et al., TMLR 2024 |
+| [`flows/components/time_samplers.py`](flowpde/flows/components/time_samplers.py) | Logit-normal sampling of the flow time | Esser et al., *Scaling Rectified Flow Transformers*, ICML 2024 |
+| [`trainers/reflow.py`](flowpde/trainers/reflow.py), `estimate_straightness` | Reflow; the straightness functional | Liu et al., ICLR 2023 |
+| [`trainers/ema.py`](flowpde/trainers/ema.py) | Weight averaging, including the `min(d, (1+n)/(10+n))` warmup schedule | Ho et al., *Denoising Diffusion Probabilistic Models*, NeurIPS 2020, and its reference implementation |
+| [`models/components.py`](flowpde/models/components.py) | Sinusoidal time embedding | Vaswani et al., *Attention Is All You Need*, NeurIPS 2017 · Ho et al., NeurIPS 2020 |
+| [`models/unet.py`](flowpde/models/unet.py) | Encoder–decoder with skip connections | Ronneberger et al., *U-Net*, MICCAI 2015 · Ho et al., NeurIPS 2020, for the time-conditioned variant |
+| [`models/resnet.py`](flowpde/models/resnet.py) | Residual basic block | He et al., *Deep Residual Learning for Image Recognition*, CVPR 2016 |
+| [`core/base_conditioner.py`](flowpde/core/base_conditioner.py) | FiLM conditioning | Perez et al., *FiLM: Visual Reasoning with a General Conditioning Layer*, AAAI 2018 |
+| [`datasets/exponax/darcy.py`](flowpde/datasets/exponax/darcy.py) | Log-normal Gaussian-random-field coefficients; the Darcy benchmark setup | Li et al., *Fourier Neural Operator for Parametric PDEs*, ICLR 2021 |
+| [`utils/metrics.py`](flowpde/utils/metrics.py) | Relative $L^2$ convention for operator learning | Kovachki et al., *Neural Operator*, JMLR 2023 |
+| [`utils/uq_metrics.py`](flowpde/utils/uq_metrics.py) | CRPS and the energy score | Gneiting & Raftery, *Strictly Proper Scoring Rules*, JASA 2007 · Székely & Rizzo, *Energy Statistics*, JSPI 2013 |
+| [`utils/uq_metrics.py`](flowpde/utils/uq_metrics.py) | Rank histogram; spread–skill ratio | Hamill, *Interpretation of Rank Histograms*, Mon. Weather Rev. 2001 · Fortin et al., *Why Should Ensemble Spread Match the RMSE of the Ensemble Mean?*, J. Hydrometeorol. 2014 |
+
+A note on one deliberate reimplementation: [`utils/metrics.py`](flowpde/utils/metrics.py)
+duplicates what `neuraloperator`'s `LpLoss` already provides. That is on purpose — it
+keeps the dependency footprint small and the definition of the headline metric visible in
+the repository that reports it.
+
+### Software
+
+| Package | Used for | Cite |
+| --- | --- | --- |
+| [PyTorch](https://pytorch.org/) | Models, training, autograd | Paszke et al., NeurIPS 2019 |
+| [torchdiffeq](https://github.com/rtqichen/torchdiffeq) | ODE integration for sampling and likelihoods | Chen et al., NeurIPS 2018; `dopri5` follows Dormand & Prince, JCAM 1980 |
+| [Exponax](https://fkoehler.site/exponax/) | Spectral PDE solvers and initial-condition generation | Koehler et al., *APEBench*, NeurIPS D&B 2024 |
+| [JAX](https://github.com/jax-ml/jax) | Backend for dataset generation | Bradbury et al., 2018 |
+| [SciPy](https://scipy.org/) | Linear assignment for the OT coupling | Virtanen et al., *Nature Methods*, 2020 |
+
+Full bibliographic entries for everything above are in
+[`report/references.bib`](report/references.bib), and the [project report](report.pdf)
+cites them in context.
+
+### What is original here
+
+The parts that are this project's own contribution rather than an implementation of
+someone else's: the forward/inverse symmetry exposed as a generator argument together
+with the noisy and partially observed variants; the conditioner abstraction that lets
+`null`, `concat` and FiLM be swapped without touching a backbone; the `BatchSource`
+mechanism that keeps reflow's noise–target pairing intact; the `vmap`-compatible
+conjugate-gradient Darcy solver; evaluation in physical units; and the experiment layer
+that holds every axis fixed but one.
 
 ## License
 
