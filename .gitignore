@@ -16,7 +16,6 @@ __pycache__/
 # Keep report sources local. A finished /report.pdf at the repository root is tracked.
 /report/
 /experiments/
-/.github/
 /configs/
 /configs/
 
