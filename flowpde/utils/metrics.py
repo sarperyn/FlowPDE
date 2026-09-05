@@ -143,22 +143,6 @@ def mae(pred: Tensor, target: Tensor) -> Tensor:
     return F.l1_loss(pred, target)
 
 
-def max_pointwise_error(pred: Tensor, target: Tensor) -> Tensor:
-    """Maximum absolute pointwise error over the batch.
-
-    Useful as a worst-case measure — reports the single largest error
-    across all samples, channels, and spatial locations.
-
-    Args:
-        pred:   Predicted tensor, shape ``(B, C, *spatial)``.
-        target: Ground-truth tensor, same shape.
-
-    Returns:
-        Scalar tensor.
-    """
-    return (pred - target).abs().max()
-
-
 def relative_max_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
     r"""Relative maximum pointwise error (L∞ norm, normalised by target range).
 

@@ -41,26 +41,6 @@ def jax_to_torch(
     return tensor
 
 
-def torch_to_jax(tensor: torch.Tensor, dtype: Optional[str] = 'float32') -> "Any":
-    """
-    Convert a PyTorch tensor to a JAX array.
-
-    Args:
-        tensor: PyTorch tensor to convert
-        dtype: Target JAX dtype as string (default: 'float32')
-
-    Returns:
-        JAX array
-    """
-    import jax.numpy as jnp
-
-    np_array = tensor.detach().cpu().numpy()
-    jax_array = jnp.array(np_array)
-    if dtype is not None:
-        jax_array = jax_array.astype(dtype)
-    return jax_array
-
-
 def compute_normalization_stats(tensor: torch.Tensor) -> dict:
     """
     Compute normalization statistics for a tensor.

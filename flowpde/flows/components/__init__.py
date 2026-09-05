@@ -20,7 +20,6 @@ from .time_samplers import (
     UniformSampler,
     LogitNormalSampler,
     BetaSampler,
-    TruncatedSampler,
     get_time_sampler,
 )
 
@@ -49,7 +48,6 @@ __all__ = [
     'UniformSampler',
     'LogitNormalSampler',
     'BetaSampler',
-    'TruncatedSampler',
     'get_time_sampler',
     # Couplings
     'Coupling',

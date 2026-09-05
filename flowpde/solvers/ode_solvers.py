@@ -361,7 +361,7 @@ def sample_with_ode_solver(
     
     solver_instance = ODEFlowSolver(
         model=model,
-        solver=solver,
+        method=solver,
         rtol=rtol,
         atol=atol
     )
@@ -424,7 +424,7 @@ def compare_solvers(
         # Create solver
         ode_solver = ODEFlowSolver(
             model=model,
-            solver=solver_name,
+            method=solver_name,
             rtol=1e-5,
             atol=1e-7
         )

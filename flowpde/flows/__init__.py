@@ -29,7 +29,6 @@ from .components import (
     UniformSampler,
     LogitNormalSampler,
     BetaSampler,
-    TruncatedSampler,
     get_time_sampler,
     # Couplings
     Coupling,
@@ -59,7 +58,6 @@ __all__ = [
     'UniformSampler',
     'LogitNormalSampler',
     'BetaSampler',
-    'TruncatedSampler',
     'get_time_sampler',
     
     # Coupling components

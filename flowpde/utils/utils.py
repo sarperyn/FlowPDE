@@ -1,15 +1,15 @@
-import torch
 import os
-import yaml
-import importlib
-import glob as _glob
-from typing import Optional
+from typing import Any, Optional, Sequence
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 
 def save_model(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-    scheduler,
+    scheduler: Optional[Any],
     epoch: int,
     epoch_loss: float,
     save_dir: str,
@@ -65,36 +65,37 @@ def print_stats(**kwargs) -> None:
     print(" | ".join(parts))
 
 
-def load_config(config_path: str) -> dict:
-    """Load a YAML config file and return it as a dict."""
-    with open(config_path, "r") as f:
-        return yaml.safe_load(f)
-
-
-def load_class(class_path: str):
-    """Dynamically import and return a class from a dotted path string.
-
-    Example::
-
-        Cls = load_class("flowpde.models.unet.UNet")
-    """
-    module_name, class_name = class_path.rsplit(".", 1)
-    module = importlib.import_module(module_name)
-    return getattr(module, class_name)
-
-
-def find_latest_checkpoint(checkpoint_dir: str) -> Optional[str]:
-    """Return the path of the most-recently saved ``model_*.pt`` checkpoint.
+def plot_curve(
+    epoch_losses: Sequence[float],
+    title: str = "Training Loss",
+    xlabel: str = "Epoch",
+    ylabel: str = "Loss",
+    save_path: str = "loss_curve.png",
+) -> None:
+    """Plot and save a training loss curve.
 
     Args:
-        checkpoint_dir: Directory containing ``model_*.pt`` files.
-
-    Returns:
-        Absolute path to the latest checkpoint, or ``None`` if none found.
+        epoch_losses: Sequence of per-epoch loss values.
+        title:        Figure title and legend label.
+        xlabel:       X-axis label.
+        ylabel:       Y-axis label.
+        save_path:    File path for the saved figure (PNG/PDF/SVG).
     """
-    if not os.path.isdir(checkpoint_dir):
-        return None
-    pattern = os.path.join(checkpoint_dir, "model_*.pt")
-    checkpoints = sorted(_glob.glob(pattern))
-    return checkpoints[-1] if checkpoints else None
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig, ax = plt.subplots(figsize=(8, 5), dpi=120)
 
+    epochs = np.arange(1, len(epoch_losses) + 1)
+    ax.plot(epochs, epoch_losses, color="#1f77b4", linewidth=2.2, alpha=0.9, label=title)
+    ax.set_title(title, fontsize=14, fontweight="bold", pad=10)
+    ax.set_xlabel(xlabel, fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+    ax.legend(frameon=False)
+    ax.grid(alpha=0.3, linestyle="--", linewidth=0.8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    plt.savefig(save_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved loss curve to {save_path}")

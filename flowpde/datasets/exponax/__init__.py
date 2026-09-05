@@ -8,7 +8,7 @@ Main Components:
       Poisson / Darcy-flow (−∇·(κ∇u) = f)
     - ``PDEDataset``: PyTorch Dataset wrapping generated data
     - ``DarcyDataset``: PyTorch Dataset for Darcy-flow data
-    - ``jax_to_torch`` / ``torch_to_jax``: array conversion utilities
+    - ``jax_to_torch``: array conversion utility
 
 Forward/inverse direction is controlled directly by each generator's
 ``problem`` argument. Returned samples always expose ``'input'`` and
@@ -42,7 +42,6 @@ from .burgers import BurgersGenerator, BurgersConfig
 from .darcy import DarcyGenerator, DarcyConfig, DarcyDataset
 from .utilities import (
     jax_to_torch,
-    torch_to_jax,
     compute_normalization_stats,
     sample_sine_fields,
 )
@@ -62,7 +61,6 @@ __all__ = [
     'DarcyConfig',
     'DarcyDataset',
     'jax_to_torch',
-    'torch_to_jax',
     'compute_normalization_stats',
     'sample_sine_fields',
 ]

@@ -67,7 +67,6 @@ from .exponax import (
     DarcyConfig,
     DarcyDataset,
     jax_to_torch,
-    torch_to_jax,
     sample_sine_fields,
 )
 
@@ -94,6 +93,5 @@ __all__ = [
     'sample_fourier_fields',
     'log_uniform',
     'jax_to_torch',
-    'torch_to_jax',
     'sample_sine_fields',
 ]

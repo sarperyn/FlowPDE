@@ -105,7 +105,6 @@ class ConcatConditioner(BaseConditioner):
         self,
         x: Tensor,
         condition: Tensor,
-        **kwargs: Any
     ) -> Tensor:
         """
         Concatenate condition with input.

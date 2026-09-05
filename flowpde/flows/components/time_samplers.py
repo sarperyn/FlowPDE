@@ -112,34 +112,6 @@ class BetaSampler(TimeSampler):
         return t.to(device)
 
 
-class TruncatedSampler(TimeSampler):
-    """
-    Wrapper that truncates another sampler to [low, high].
-    
-    Useful for avoiding exact 0 or 1 which can cause numerical issues.
-    
-    Args:
-        base_sampler: Underlying sampler
-        low: Lower bound for truncation (default: 1e-5)
-        high: Upper bound for truncation (default: 1 - 1e-5)
-    """
-    
-    def __init__(
-        self, 
-        base_sampler: TimeSampler,
-        low: float = 1e-5,
-        high: float = 1.0 - 1e-5
-    ):
-        self.base_sampler = base_sampler
-        self.low = low
-        self.high = high
-    
-    def sample(self, batch_size: int, device: torch.device) -> Tensor:
-        """Sample from base and clamp to [low, high]."""
-        t = self.base_sampler.sample(batch_size, device)
-        return t.clamp(self.low, self.high)
-
-
 # =============================================================================
 # Factory Function
 # =============================================================================

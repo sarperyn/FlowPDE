@@ -9,7 +9,7 @@ This module contains reusable building blocks used across all architectures:
 """
 
 import math
-from typing import Any, Union, Tuple, Optional, Type
+from typing import Any, Optional, Type
 from functools import partial
 
 import torch
@@ -337,33 +337,3 @@ def expand_time_embedding(t_emb: Tensor, spatial_dim: int) -> Tensor:
         return t_emb[:, :, None, None]
     else:
         raise ValueError(f"spatial_dim must be 1 or 2, got {spatial_dim}")
-
-
-def compute_spatial_size(
-    input_dim: int,
-    channels: int,
-    spatial_dim: int
-) -> Union[int, Tuple[int, int]]:
-    """
-    Compute spatial size from flattened dimension.
-    
-    Args:
-        input_dim: Total flattened dimension
-        channels: Number of channels
-        spatial_dim: Spatial dimensionality (1 or 2)
-    
-    Returns:
-        Spatial size (int for 1D, tuple for 2D if non-square)
-    """
-    spatial_elements = input_dim // channels
-    
-    if spatial_dim == 1:
-        return spatial_elements
-    else:
-        side = int(math.sqrt(spatial_elements))
-        if side * side != spatial_elements:
-            raise ValueError(
-                f"Cannot reshape {spatial_elements} elements into square grid. "
-                f"Got input_dim={input_dim}, channels={channels}"
-            )
-        return side
