@@ -6,6 +6,8 @@ repo_name: FlowPDE
 
 theme:
   name: material
+  logo: assets/branding/flowpde-mark-light.svg
+  favicon: assets/branding/favicon.svg
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default

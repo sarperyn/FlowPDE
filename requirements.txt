@@ -1,5 +1,3 @@
-# Runtime dependencies. Keep this list aligned with [project.dependencies]
-# in pyproject.toml.
 torch>=2.0.0
 torchdiffeq>=0.2.4
 numpy

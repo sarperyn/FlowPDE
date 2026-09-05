@@ -1,11 +1,24 @@
-# FlowPDE
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/branding/flowpde-logo-dark.png">
+    <img src="docs/assets/branding/flowpde-logo.png" alt="FlowPDE" width="360">
+  </picture>
+</p>
 
-**Flow-based generative models for forward and inverse PDE problems.**
+<p align="center">
+  <strong>Flow-based generative models for forward and inverse PDE problems.</strong>
+</p>
+
+<p align="center">
+  <a href="https://sarperyn.github.io/FlowPDE/">Documentation</a> &middot;
+  <a href="https://sarperyn.github.io/FlowPDE/getting_started/installation/">Installation</a> &middot;
+  <a href="https://sarperyn.github.io/FlowPDE/getting_started/quickstart/">Quickstart</a> &middot;
+  <a href="https://sarperyn.github.io/FlowPDE/api/">API reference</a> &middot;
+  <a href="report.pdf">Project report</a>
+</p>
 
 FlowPDE is a PyTorch library for learning conditional distributions between PDE
 fields. It combines flow matching with neural ODEs to solve forward problems and inverse problems.
-
-[Project report](report.pdf)
 
 ## What is included
 
@@ -22,12 +35,15 @@ Each of the six problem settings is drawn out under
 
 ## Setup
 
+FlowPDE requires **Python 3.11 or newer**. The `uv` path uses the versions recorded in
+`uv.lock` and fetches a suitable interpreter itself; the pip path installs the runtime
+dependencies from `requirements.txt` against any 3.11+ interpreter you already have.
+
 With [uv](https://docs.astral.sh/uv/) (recommended):
 
 ```bash
 git clone https://github.com/sarperyn/FlowPDE.git
 cd FlowPDE
-uv python install 3.11
 uv sync
 source .venv/bin/activate
 ```
@@ -37,18 +53,15 @@ Without `uv`, use Python's built-in virtual environment and pip:
 ```bash
 git clone https://github.com/sarperyn/FlowPDE.git
 cd FlowPDE
-python3.11 -m venv .venv
+python3 -m venv .venv               # any Python 3.11+
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -e . --no-deps
 ```
 
-FlowPDE requires Python 3.11 or newer. The `uv` path uses the versions recorded in
-`uv.lock`; the pip path installs the runtime dependencies from `requirements.txt`.
-For CUDA/JAX and the optional dependencies, see the installation guide in the
-documentation — `docs/getting_started/installation.md`, or build the site locally as
-described under [Documentation](#documentation).
+For CUDA/JAX and the optional dependencies, see the
+[installation guide](https://sarperyn.github.io/FlowPDE/getting_started/installation/).
 
 ## Quick Example
 
@@ -82,7 +95,7 @@ batch = next(iter(loader))
 samples = objective.sample(batch["input"], n_steps=50).view_as(batch["target"])
 ```
 
-The full quickstart — `docs/getting_started/quickstart.md` — adds validation,
+The full [quickstart](https://sarperyn.github.io/FlowPDE/getting_started/quickstart/) adds validation,
 checkpointing, and evaluation in physical units.
 
 ## Notebooks
@@ -103,7 +116,8 @@ The lockfile installs the kernel but not a Jupyter front-end, so either open the
 directly in an editor that renders notebooks, or bring one along for the run:
 
 ```bash
-uv run --with jupyterlab jupyter lab notebooks/
+uv run --with jupyterlab jupyter lab notebooks/    # uv
+pip install jupyterlab && jupyter lab notebooks/   # activated virtualenv
 ```
 
 ## Problem settings
@@ -249,28 +263,33 @@ uv run -m pytest -m "not slow"      # skip the Exponax integration tests
 uv run -m pytest tests/test_trainer.py -v
 ```
 
+In an activated virtualenv, install the extra with `pip install -e ".[dev]"` and drop the
+`uv run` prefix — `python -m pytest -m "not slow"`.
+
 ## Documentation
 
-The documentation is built with MkDocs using the Material theme, and API pages are
-generated from the docstrings by `mkdocstrings`, so they track the code rather than being
-written twice.
+The documentation is hosted at **[sarperyn.github.io/FlowPDE](https://sarperyn.github.io/FlowPDE/)**.
+It is built with MkDocs using the Material theme, and API pages are generated from the
+docstrings by `mkdocstrings`, so they track the code rather than being written twice.
+Every push to `main` rebuilds and redeploys it through
+[`.github/workflows/docs.yml`](.github/workflows/docs.yml).
 
 ![FlowPDE documentation, API reference page](docs/assets/readme/documentation.png)
 
-> **Not currently hosted.** This documentation was going to be published on GitHub Pages,
-> but I have lost access to GitHub Pro and am waiting for a new approval, so the site is
-> not online for now. Until then, build it locally with the commands below — the content
-> is complete, it simply has nowhere public to live yet.
-
 The source lives under `docs/`, organised as:
 
-- **Getting Started** — installation, including the CUDA/JAX and optional dependencies,
-  and a quickstart that extends the example above with validation, checkpointing, and
-  evaluation in physical units.
-- **Concepts** — an architecture overview of how flows, objectives, conditioners,
-  backbones and solvers fit together, and a flow-matching explainer.
-- **API Reference** — every public class, generated from source.
-- **Examples** — the notebooks under `notebooks/`, rendered.
+- **[Getting Started](https://sarperyn.github.io/FlowPDE/getting_started/installation/)** —
+  installation, including the CUDA/JAX and optional dependencies, and a
+  [quickstart](https://sarperyn.github.io/FlowPDE/getting_started/quickstart/) that extends
+  the example above with validation, checkpointing, and evaluation in physical units.
+- **Concepts** — an
+  [architecture overview](https://sarperyn.github.io/FlowPDE/concepts/architecture/) of how
+  flows, objectives, conditioners, backbones and solvers fit together, and a
+  [flow-matching explainer](https://sarperyn.github.io/FlowPDE/concepts/flow_matching/).
+- **[API Reference](https://sarperyn.github.io/FlowPDE/api/)** — every public class,
+  generated from source.
+- **[Examples](https://sarperyn.github.io/FlowPDE/examples/notebooks/)** — the notebooks
+  under `notebooks/`, rendered.
 
 To build it locally:
 
