@@ -18,7 +18,6 @@ __pycache__/
 /experiments/
 /.github/
 /configs/
-/.github/
 /configs/
 
 # MkDocs build output — the source in docs/ is what belongs in git
