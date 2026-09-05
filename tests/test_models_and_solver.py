@@ -17,7 +17,7 @@ from flowpde.models.mlp import MLP
 from flowpde.models.resnet import ResNet
 from flowpde.models.unet import UNet
 from flowpde.objectives import FlowMatchingObjective, create_flow_matching
-from flowpde.solvers import ODEFlowSolver
+from flowpde.solvers import ODEFlowSolver, compare_solvers, sample_with_ode_solver
 
 
 # Backbones
@@ -152,6 +152,42 @@ def test_solver_returns_trajectory():
 def test_solver_rejects_unknown_method():
     with pytest.raises(ValueError, match="Unknown method"):
         ODEFlowSolver(model=ExponentialDecay(), method="not_a_solver")
+
+
+# Module-level solver helpers. These are exported from ``flowpde.solvers`` but
+# used by nothing inside the library, so nothing else would notice if their
+# call into ODEFlowSolver drifted out of sync with its signature.
+
+
+def test_sample_with_ode_solver_matches_analytic_decay():
+    samples, trajectory = sample_with_ode_solver(
+        model=ExponentialDecay(),
+        condition=torch.zeros(3, 4),
+        solver="rk4",
+        n_steps=200,
+        device="cpu",
+        return_trajectory=True,
+    )
+    # x_init is drawn internally, so check the ratio rather than a fixed value.
+    expected = trajectory[0] * torch.exp(torch.tensor(-1.0))
+    assert samples.shape == (3, 4)
+    assert torch.allclose(samples, expected, atol=1e-5)
+
+
+def test_compare_solvers_reports_every_requested_solver():
+    results = compare_solvers(
+        model=ExponentialDecay(),
+        condition=torch.zeros(2, 4),
+        ground_truth=torch.zeros(2, 4),
+        solvers=["euler", "rk4", "dopri5"],
+        device="cpu",
+        n_steps=50,
+    )
+    assert set(results) == {"euler", "rk4", "dopri5"}
+    for name, info in results.items():
+        assert info["samples"].shape == (2, 4), name
+        assert info["time"] >= 0.0, name
+        assert info["error"] is not None and info["error"] >= 0.0, name
 
 
 # Objective
