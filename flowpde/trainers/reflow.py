@@ -6,38 +6,40 @@ Rectified Flow (Liu et al., 2023) has two parts, and they are easy to
 conflate:
 
 1. **The objective.** Training with a linear path and independent coupling.
-   This is what ``create_flow_matching(flow, variant='rectified')`` gives you,
+   This is what `create_flow_matching(flow, variant='rectified')` gives you,
    and mathematically it is the same as standard flow matching with a linear
    path.  It does *not*, on its own, straighten anything.
 
 2. **Reflow.** The procedure in this module.  Take the trained model, generate
-   pairs :math:`(z, \\mathrm{ODE}(z))` by integrating from noise, then retrain
+   pairs $(z, \\mathrm{ODE}(z))$ by integrating from noise, then retrain
    on those pairs.  Repeat.  This is what actually straightens trajectories
    and makes few-step Euler sampling accurate.
 
 The correctness requirement that makes or breaks reflow: training **must** use
-the same :math:`z` that produced each generated target.  Reflow works because
+the same $z$ that produced each generated target.  Reflow works because
 the pairing is deterministic and induced by the model; if training resamples
 noise independently, the pairs decouple and the procedure degrades into
 training on the model's own samples, which straightens nothing.
 
-This module therefore emits an explicit ``x_0`` for every pair and requires
+This module therefore emits an explicit `x_0` for every pair and requires
 the objective to consume it via
-:class:`~flowpde.flows.components.sources.BatchSource`.
+`BatchSource`.
 
-Usage::
+Usage:
 
-    from flowpde.flows import BatchSource
-    from flowpde.trainers import generate_reflow_pairs, reflow
+```python
+from flowpde.flows import BatchSource
+from flowpde.trainers import generate_reflow_pairs, reflow
 
-    # The objective must read x_0 from the batch.
-    objective.source = BatchSource()
+# The objective must read x_0 from the batch.
+objective.source = BatchSource()
 
-    pairs = generate_reflow_pairs(objective, train_loader, n_steps=100)
-    loader = DataLoader(pairs, batch_size=32, shuffle=True)
-    trainer.train(loader, epochs=50, ...)
+pairs = generate_reflow_pairs(objective, train_loader, n_steps=100)
+loader = DataLoader(pairs, batch_size=32, shuffle=True)
+trainer.train(loader, epochs=50, ...)
+```
 
-or, for the whole loop::
+or, for the whole loop:
 
     reflow(objective, train_loader, optimizer_factory=make_optimizer,
            num_iterations=2, epochs_per_iteration=50)
@@ -57,20 +59,20 @@ from flowpde.flows.components.sources import BatchSource
 
 class ReflowDataset(Dataset):
     """
-    Precomputed ``(x_0, x_1, condition)`` triples produced by a trained flow.
+    Precomputed `(x_0, x_1, condition)` triples produced by a trained flow.
 
     Each item is a batch dict carrying the source point alongside the usual
-    target and condition, so a ``BatchSource``-configured objective trains on
+    target and condition, so a `BatchSource`-configured objective trains on
     the exact pairing the model generated.
 
     Args:
-        x_0: Source points, shape ``(N, D)``.
-        x_1: Generated targets, shape ``(N, D)``.
-        condition: Conditioning tensors, shape ``(N, C)``.
+        x_0: Source points, shape `(N, D)`.
+        x_1: Generated targets, shape `(N, D)`.
+        condition: Conditioning tensors, shape `(N, C)`.
         target_key: Key for the target in emitted samples.
         condition_key: Key for the condition in emitted samples.
-        source_key: Key for ``x_0`` in emitted samples; must match the
-            ``BatchSource`` key on the objective.
+        source_key: Key for `x_0` in emitted samples; must match the
+            `BatchSource` key on the objective.
     """
 
     def __init__(
@@ -131,31 +133,31 @@ def generate_reflow_pairs(
     max_batches: Optional[int] = None,
 ) -> ReflowDataset:
     """
-    Generate ``(z, ODE(z))`` pairs from the current model.
+    Generate `(z, ODE(z))` pairs from the current model.
 
-    For every condition in ``data_loader``, draw :math:`z \\sim
-    \\mathcal{N}(0, I)` and integrate the learned ODE to obtain
-    :math:`x_1' = \\mathrm{ODE}(z \\mid f)`.  The ground-truth targets in the
+    For every condition in `data_loader`, draw $z \\sim
+    \\mathcal{N}(0, I)$ and integrate the learned ODE to obtain
+    $x_1' = \\mathrm{ODE}(z \\mid f)$.  The ground-truth targets in the
     loader are ignored — only the conditions are reused.  Reflow trains on the
     model's own transport map, not on the data.
 
-    Use a high ``n_steps`` here: pair quality bounds what reflow can achieve,
+    Use a high `n_steps` here: pair quality bounds what reflow can achieve,
     and errors introduced now are baked into the next iteration's targets.
 
     Args:
-        objective: Flow objective exposing ``sample(...)``.
+        objective: Flow objective exposing `sample(...)`.
         data_loader: Loader supplying conditions.
         n_steps: ODE steps used to generate targets.
         solver: ODE solver name.
         condition_key: Batch key for conditions.  Defaults to the objective's.
         target_key: Batch key for targets, used only to infer the target
             shape.  Defaults to the objective's.
-        source_key: Key under which ``x_0`` is stored in the result.
+        source_key: Key under which `x_0` is stored in the result.
         seed: Seed for the generated noise, for reproducible pairs.
         max_batches: Optionally cap the number of batches consumed.
 
     Returns:
-        A :class:`ReflowDataset` of the generated pairs.
+        A `ReflowDataset` of the generated pairs.
     """
     condition_key = condition_key or getattr(objective, "condition_key", "input")
     target_key = target_key or getattr(objective, "target_key", "target")
@@ -230,28 +232,28 @@ def reflow(
 
     Each iteration regenerates pairs with the *current* model, so trajectories
     straighten progressively.  Optimizer state is rebuilt every iteration via
-    ``optimizer_factory`` because the target distribution changes between
+    `optimizer_factory` because the target distribution changes between
     iterations and stale moment estimates work against the new objective.
 
     The objective's source is switched to
-    :class:`~flowpde.flows.components.sources.BatchSource` for the duration and
+    `BatchSource` for the duration and
     restored afterwards, so sampling behaviour is unchanged on return.
 
     Args:
         objective: Flow objective to straighten, already trained.
         data_loader: Loader supplying conditions (targets are ignored).
         optimizer_factory: Callable taking model parameters and returning a
-            fresh optimizer, e.g. ``lambda p: torch.optim.Adam(p, lr=1e-4)``.
+            fresh optimizer, e.g. `lambda p: torch.optim.Adam(p, lr=1e-4)`.
         num_iterations: Number of reflow iterations.
         epochs_per_iteration: Training epochs per iteration.
         n_steps: ODE steps used when generating pairs.
         solver: ODE solver used when generating pairs.
         batch_size: Batch size for training on generated pairs.
         save_dir: Optional directory; each iteration writes to a
-            ``reflow_{i}`` subdirectory.
+            `reflow_{i}` subdirectory.
         print_stats_interval: Passed through to the trainer.
-        trainer_kwargs: Extra keyword arguments for ``Trainer`` (``ema_decay``,
-            ``gradient_clip``, ``validator``, ...).
+        trainer_kwargs: Extra keyword arguments for `Trainer` (`ema_decay`,
+            `gradient_clip`, `validator`, ...).
         seed: Seed for pair generation.
 
     Returns:

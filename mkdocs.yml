@@ -131,6 +131,7 @@ nav:
       - Normalization: api/datasets/normalization.md
     - Utils:
       - Metrics: api/utils/metrics.md
+      - UQ Metrics: api/utils/uq_metrics.md
       - General Utilities: api/utils/utils.md
   - Examples:
     - Notebooks: examples/notebooks.md

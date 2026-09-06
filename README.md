@@ -154,8 +154,9 @@ produced the fields shown.
 The Darcy inverse problem has three variants, selected with `inverse_mode`: recover the
 coefficient $\kappa$ from $(u, f)$, recover the source $f$ from $(u, \kappa)$, or
 recover both jointly from $u$ alone. Observations are degraded independently of the
-direction — `obs_noise_std` adds Gaussian noise and `obs_mask_fraction` hides a random
-fraction of the grid, appending the observation mask as an extra conditioning channel.
+direction — `obs_noise_std` adds Gaussian noise, and `obs_mask_fraction` is the
+fraction of grid points that stay *observed*: anything below 1.0 zeroes out the rest
+and appends the observation mask as an extra conditioning channel.
 
 
 ## Results

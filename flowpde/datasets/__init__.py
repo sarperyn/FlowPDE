@@ -3,8 +3,8 @@ Dataset Modules for FlowPDE
 ============================
 
 Provides PyTorch Dataset classes for PDE problems using Exponax
-for direct PDE data generation. All datasets return ``sample['input']`` and
-``sample['target']``; choosing ``problem='inverse'`` swaps the learning
+for direct PDE data generation. All datasets return `sample['input']` and
+`sample['target']`; choosing `problem='inverse'` swaps the learning
 direction instead of requiring a wrapper.
 
 Main Components:

@@ -15,35 +15,35 @@ from flowpde.utils import plot_curve, print_stats, save_model
 
 class Trainer:
     """
-    Train any objective exposing ``compute_loss(batch)`` and ``model``.
+    Train any objective exposing `compute_loss(batch)` and `model`.
 
     Model selection defaults to the training loss, but for flow matching that
     loss has a large irreducible floor and correlates only weakly with sample
-    quality.  Pass a ``validator`` (see
-    :class:`~flowpde.trainers.evaluation.FlowEvaluator`) to select checkpoints
+    quality.  Pass a `validator` (see
+    `FlowEvaluator`) to select checkpoints
     on the error of ODE-sampled solutions instead — that is what the model is
     ultimately judged on.
 
     Args:
-        objective: Object with ``compute_loss(batch)`` and a ``model``
+        objective: Object with `compute_loss(batch)` and a `model`
             attribute.
         optimizer: Optimizer over the model parameters.
         scheduler: Optional LR scheduler, stepped once per epoch.
         device: Device to train on.
-        gradient_clip: Max gradient norm, or ``None`` to disable.
+        gradient_clip: Max gradient norm, or `None` to disable.
         use_amp: Enable automatic mixed precision.
         ema_decay: Decay for an exponential moving average of the weights, or
-            ``None`` to disable.  Validation and checkpointing then use the
+            `None` to disable.  Validation and checkpointing then use the
             averaged weights, which is standard for this model family.
-        validator: Zero-argument callable returning ``{metric: value}``.
-            Called every ``val_interval`` epochs under EMA weights.
+        validator: Zero-argument callable returning `{metric: value}`.
+            Called every `val_interval` epochs under EMA weights.
         val_interval: Epochs between validation passes.
         monitor: Validation metric to select checkpoints on.  Defaults to the
             first metric the validator returns.
-        monitor_mode: ``'min'`` (default) or ``'max'``, whichever counts as an
-            improvement for ``monitor``.
+        monitor_mode: `'min'` (default) or `'max'`, whichever counts as an
+            improvement for `monitor`.
         checkpoint_extra: Extra entries stored in every checkpoint, e.g.
-            ``{'normalizer_state': normalizer.state_dict()}`` so inference can
+            `{'normalizer_state': normalizer.state_dict()}` so inference can
             reproduce the training-time preprocessing.
     """
 
@@ -142,7 +142,7 @@ class Trainer:
         Run the validator under EMA weights, if one is configured.
 
         Returns:
-            Metric dict, or ``None`` when no validator was given.
+            Metric dict, or `None` when no validator was given.
         """
         if self.validator is None:
             return None

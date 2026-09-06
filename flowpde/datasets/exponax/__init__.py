@@ -2,32 +2,34 @@
 Exponax Integration Module for FlowPDE
 
 Main Components:
-    - ``PoissonGenerator``: source → solution pairs for the Poisson equation
-    - ``BurgersGenerator``: IC → final-state pairs for the Burgers equation
-    - ``DarcyGenerator``: (κ, f) → solution pairs for variable-coefficient
+    - `PoissonGenerator`: source → solution pairs for the Poisson equation
+    - `BurgersGenerator`: IC → final-state pairs for the Burgers equation
+    - `DarcyGenerator`: (κ, f) → solution pairs for variable-coefficient
       Poisson / Darcy-flow (−∇·(κ∇u) = f)
-    - ``PDEDataset``: PyTorch Dataset wrapping generated data
-    - ``DarcyDataset``: PyTorch Dataset for Darcy-flow data
-    - ``jax_to_torch``: array conversion utility
+    - `PDEDataset`: PyTorch Dataset wrapping generated data
+    - `DarcyDataset`: PyTorch Dataset for Darcy-flow data
+    - `jax_to_torch`: array conversion utility
 
 Forward/inverse direction is controlled directly by each generator's
-``problem`` argument. Returned samples always expose ``'input'`` and
-``'target'`` keys for training.
+`problem` argument. Returned samples always expose `'input'` and
+`'target'` keys for training.
 
-Quick Start::
+Quick Start:
 
-    from flowpde.datasets.exponax import PoissonGenerator, DarcyGenerator
+```python
+from flowpde.datasets.exponax import PoissonGenerator, DarcyGenerator
 
-    # Constant-coefficient Poisson
-    gen = PoissonGenerator(num_points=64, domain_extent=10.0)
-    dataset = gen.generate(num_samples=1000, seed=42)
+# Constant-coefficient Poisson
+gen = PoissonGenerator(num_points=64, domain_extent=10.0)
+dataset = gen.generate(num_samples=1000, seed=42)
 
-    # Variable-coefficient Poisson / Darcy flow
-    gen = DarcyGenerator(num_points=64, kappa_alpha=2.0, kappa_tau=3.0)
-    dataset = gen.generate(num_samples=1000, seed=42)
-    sample = dataset[0]
-    # sample['input']  → (2, 64, 64)  cat([κ, f])
-    # sample['target'] → (1, 64, 64)  solution u
+# Variable-coefficient Poisson / Darcy flow
+gen = DarcyGenerator(num_points=64, kappa_alpha=2.0, kappa_tau=3.0)
+dataset = gen.generate(num_samples=1000, seed=42)
+sample = dataset[0]
+# sample['input']  → (2, 64, 64)  cat([κ, f])
+# sample['target'] → (1, 64, 64)  solution u
+```
 """
 
 from .base import PDEDataset, GenerationConfig

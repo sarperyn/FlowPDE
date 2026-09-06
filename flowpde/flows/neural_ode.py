@@ -152,8 +152,8 @@ class NeuralODEFlow(BaseFlow):
     r"""
     Conditional neural ODE flow with optional exact log probability.
     
-    ``NeuralODEFlow`` represents the continuous-time flow/dynamics. Training
-    objectives live in ``flowpde.objectives``.
+    `NeuralODEFlow` represents the continuous-time flow/dynamics. Training
+    objectives live in `flowpde.objectives`.
     
     $$\log p(x_1) = \log p(x_0) - \int_0^1 \text{tr}\left(\frac{\partial f}{\partial x}\right) dt$$
     

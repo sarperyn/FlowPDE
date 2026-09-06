@@ -29,14 +29,13 @@ graph TD
 
 ### Core (`flowpde.core`)
 
-Abstract base classes and the configuration system.
+Abstract base classes only — no configuration layer.
 
 - **`BaseFlow`** — `forward_transform()`, `inverse_transform()`, `sample()`, `log_prob()`
-- **`BaseSolver`** — abstract ODE solver interface
+- **`BaseSolver`** / **`ODESolver`** — abstract solver interfaces
 - **`BaseConditioner`** — `ConcatConditioner`, `FiLMConditioner`, `NullConditioner`
-- **`ExperimentConfig`** — typed dataclass hierarchy for recording runs
 
-!!! note "Core never imports a config layer"
+!!! note "There is no config layer"
     `FlowMatchingObjective(...)` works with zero config machinery in the picture.
     Configuration is specified in Python and serialized *out* via `get_config()`.
 
@@ -48,7 +47,7 @@ composes:
 | Component | Options |
 |-----------|---------|
 | **Path** | `LinearPath`, `OTConditionalPath` |
-| **Time Sampler** | `UniformSampler`, `LogitNormalSampler`, `BetaSampler`, `TruncatedSampler` |
+| **Time Sampler** | `UniformSampler`, `LogitNormalSampler`, `BetaSampler` |
 | **Coupling** | `IndependentCoupling`, `MiniBatchOTCoupling` |
 | **Source** | `GaussianSource`, `BatchSource` |
 

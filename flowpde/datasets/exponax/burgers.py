@@ -8,24 +8,26 @@ on periodic domains.
 
 The Burgers equation:
 
-.. math::
-
-    \frac{\partial u}{\partial t} + u \cdot \nabla u = \nu \nabla^2 u
+$$
+\frac{\partial u}{\partial t} + u \cdot \nabla u = \nu \nabla^2 u
+$$
 
 Smooth sine/cosine initial conditions are evolved forward in time using the
 spectral stepper.
 
-Example::
+**Example**
 
-    generator = BurgersGenerator(
-        num_spatial_dims=1,
-        num_points=160,
-        diffusivity_min=1e-4,
-        diffusivity_max=1e-2,
-        dt=0.001,
-        num_steps=50,
-    )
-    dataset = generator.generate(num_samples=500, seed=0)
+```python
+generator = BurgersGenerator(
+    num_spatial_dims=1,
+    num_points=160,
+    diffusivity_min=1e-4,
+    diffusivity_max=1e-2,
+    dt=0.001,
+    num_steps=50,
+)
+dataset = generator.generate(num_samples=500, seed=0)
+```
 """
 
 from dataclasses import dataclass
@@ -61,7 +63,7 @@ class BurgersConfig(GenerationConfig):
         ic_num_terms: Number of sine/cosine terms per initial condition.
         ic_max_mode: Largest integer wavenumber sampled per dimension.
         store_trajectory: If True, keep the full rollout trajectory
-            in the dataset (key ``'trajectory'``).
+            in the dataset (key `'trajectory'`).
     """
     num_spatial_dims: int = 1
     domain_extent: float = 1.0
@@ -82,14 +84,14 @@ class BurgersGenerator(ExponaxDatasetGenerator):
 
     Workflow:
         1. Create simple smooth sine/cosine initial conditions
-        2. Step forward using ``exponax.stepper.Burgers`` (optionally via
-           ``exponax.rollout`` for trajectories)
+        2. Step forward using `exponax.stepper.Burgers` (optionally via
+           `exponax.rollout` for trajectories)
         3. Convert JAX arrays → PyTorch tensors
-        4. Wrap in a ``PDEDataset``
+        4. Wrap in a `PDEDataset`
 
     Args:
-        config: A ``BurgersConfig`` instance.  Keyword arguments are
-                forwarded to ``BurgersConfig`` if *config* is None.
+        config: A `BurgersConfig` instance.  Keyword arguments are
+                forwarded to `BurgersConfig` if *config* is None.
     """
 
     config_cls = BurgersConfig
@@ -104,13 +106,13 @@ class BurgersGenerator(ExponaxDatasetGenerator):
         Generate a Burgers dataset.
 
         Args:
-            num_samples: Override ``config.num_samples``.
-            seed: Override ``config.seed``.
-            problem: ``'forward'`` (IC→final) or ``'inverse'``.
+            num_samples: Override `config.num_samples`.
+            seed: Override `config.seed`.
+            problem: `'forward'` (IC→final) or `'inverse'`.
 
         Returns:
-            A ``PDEDataset`` with keys ``'initial'`` and ``'final'``
-            (and optionally ``'trajectory'``).
+            A `PDEDataset` with keys `'initial'` and `'final'`
+            (and optionally `'trajectory'`).
         """
         cfg, n, s = self.resolve_run(num_samples, seed)
         self.validate_problem(problem)

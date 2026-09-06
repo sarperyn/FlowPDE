@@ -1,34 +1,44 @@
 """
-FlowPDE: A Backend Library for Normalizing Flows Solving Inverse Problems
+FlowPDE: Flow-based generative models for forward and inverse PDE problems.
 
 Quick Start:
     >>> import torch
-    >>> from flowpde.flows import NeuralODEFlow
-    >>> from flowpde.objectives import FlowMatchingObjective
-    >>> from flowpde.models import UNet
-    >>> 
-    >>> # Create model and flow
-    >>> model = UNet(input_dim=64, base_ch=64)
-    >>> flow = NeuralODEFlow(model)
-    >>> objective = FlowMatchingObjective(flow)
-    >>> 
+    >>> from torch.utils.data import DataLoader
+    >>> from flowpde import NeuralODEFlow, FlowMatchingObjective, Trainer, UNet
+    >>> from flowpde.datasets import PoissonGenerator, FieldNormalizer
+    >>>
+    >>> # Data: source -> solution pairs, normalized
+    >>> generator = PoissonGenerator(num_spatial_dims=2, num_points=64)
+    >>> train_ds = generator.generate(num_samples=1000, seed=42, problem="forward")
+    >>> train_ds.set_normalizer(FieldNormalizer.from_dataset(train_ds))
+    >>> loader = DataLoader(train_ds, batch_size=32, shuffle=True)
+    >>>
+    >>> # The flow is the dynamics; the objective is how they are trained
+    >>> model = UNet(spatial_dim=2, spatial_size=64, base_channels=64)
+    >>> flow = NeuralODEFlow(model, target_key="target", condition_key="input")
+    >>> objective = FlowMatchingObjective(flow, path="linear", time_sampler="uniform")
+    >>>
     >>> # Train
-    >>> optimizer = torch.optim.Adam(flow.parameters(), lr=1e-3)
-    >>> for batch in trainloader:
-    >>>     loss = objective.compute_loss(batch)
-    >>>     loss.backward()
-    >>>     optimizer.step()
-    >>> 
-    >>> # Sample
-    >>> samples = flow.sample(condition=f, n_steps=50)
+    >>> optimizer = torch.optim.Adam(objective.parameters(), lr=1e-4)
+    >>> trainer = Trainer(objective, optimizer, device="cpu", ema_decay=0.999)
+    >>> trainer.train(loader, epochs=100, print_stats_interval=10,
+    ...               save_dir="results/poisson/", save_interval=25)
+    >>>
+    >>> # Sample: returns a flattened (B, D) tensor
+    >>> batch = next(iter(loader))
+    >>> samples = flow.sample(condition=batch["input"], n_steps=50)
 
 Architecture:
-    - flowpde.flows: Neural ODE flow objects
-    - flowpde.objectives: Training objectives
+    - flowpde.core: Base classes for flows, solvers, and conditioners
+    - flowpde.flows: Neural ODE flow objects and their pluggable components
+    - flowpde.objectives: Training objectives (flow matching, maximum likelihood)
     - flowpde.models: Neural networks (MLP, UNet, ConvNet, ResNet)
-    - flowpde.solvers: ODE/SDE solvers
-    - flowpde.inverse: Posterior sampling, uncertainty quantification
-    - flowpde.datasets: Dataset loaders
+    - flowpde.solvers: ODE solvers for sampling
+    - flowpde.trainers: Training loop, EMA, evaluation, reflow
+    - flowpde.datasets: Exponax PDE data generation and normalization
+    - flowpde.utils: Error metrics, UQ metrics, and general utilities
+
+Documentation: https://sarperyn.github.io/FlowPDE/
 """
 
 # Direct imports - Natural API (recommended)

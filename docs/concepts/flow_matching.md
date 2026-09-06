@@ -66,21 +66,22 @@ How \(t\) is sampled during training affects convergence:
 | `logit_normal` | \(t = \sigma(z),\ z \sim \mathcal{N}(\mu, \sigma^2)\) | Weights the middle of the path |
 | `beta` | \(t \sim \mathrm{Beta}(\alpha, \beta)\) | Flexible concentration |
 
-`TruncatedSampler` is a **wrapper**, not a registry name — it clamps another sampler
-away from exactly 0 and 1, where the velocity target can be numerically awkward. Pass
-it as an instance:
+Every sampler is constructible directly, which is how you tune its parameters or keep
+\(t\) away from exactly 0 and 1, where the velocity target can be numerically awkward:
 
 ```python
-from flowpde.flows.components.time_samplers import TruncatedSampler, UniformSampler
+from flowpde.flows.components.time_samplers import UniformSampler
 
 objective = FlowMatchingObjective(
     flow,
-    time_sampler=TruncatedSampler(UniformSampler(), low=1e-5, high=1 - 1e-5),
+    time_sampler=UniformSampler(low=1e-5, high=1 - 1e-5),
 )
 ```
 
 This is the "string or instance" rule the component getters follow throughout: anywhere
-a name is accepted, a constructed object is too.
+a name is accepted, a constructed object is too. The getters also forward keyword
+arguments to the constructor, so `get_time_sampler('logit_normal', std=0.5)` and
+`LogitNormalSampler(std=0.5)` are the same thing.
 
 ## Couplings
 

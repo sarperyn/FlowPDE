@@ -32,10 +32,10 @@ class GenerationConfig:
             in inverse-problem datasets.  Each sample independently draws a
             random Bernoulli mask with this probability; unobserved locations
             are zeroed out in the observation field.  The binary mask
-            (1 = observed, 0 = unobserved) is stored as ``'obs_mask'`` in the
-            dataset and returned by ``__getitem__``.  1.0 (default) = full
+            (1 = observed, 0 = unobserved) is stored as `'obs_mask'` in the
+            dataset and returned by `__getitem__`.  1.0 (default) = full
             observations; 0.1 = only 10 % of points visible.
-            Has no effect when ``problem='forward'`` or when left at 1.0.
+            Has no effect when `problem='forward'` or when left at 1.0.
     """
     num_spatial_dims: int = 2
     num_points: int = 64
@@ -63,10 +63,10 @@ class PDEDataset(Dataset):
     * **Burgers** (time-dependent): input=initial condition,
       target=final state (forward) or vice-versa (inverse).
 
-    When partial observations are enabled (``obs_mask_fraction < 1.0``),
-    ``__getitem__`` appends the observation mask to the conditioning input
-    and additionally returns ``'obs_mask'``: a float tensor of shape
-    ``(1, *spatial)`` with 1 at observed locations and 0 elsewhere.
+    When partial observations are enabled (`obs_mask_fraction < 1.0`),
+    `__getitem__` appends the observation mask to the conditioning input
+    and additionally returns `'obs_mask'`: a float tensor of shape
+    `(1, *spatial)` with 1 at observed locations and 0 elsewhere.
 
     The dataset also stores normalization statistics and generation
     config for reference.
@@ -87,7 +87,7 @@ class PDEDataset(Dataset):
             problem: 'forward' maps natural data -> solution;
                      'inverse' reverses the mapping.
             metadata: Optional dict with 'stats', 'config', etc.
-            normalizer: Optional ``FieldNormalizer`` applied to each PDE
+            normalizer: Optional `FieldNormalizer` applied to each PDE
                 field on access.  Fit it on the training split and share
                 the same instance with validation/test splits.
         """
@@ -139,7 +139,7 @@ class PDEDataset(Dataset):
         so all data is standardized with the same statistics.
 
         Returns:
-            ``self``, for chaining.
+            `self`, for chaining.
         """
         self.normalizer = normalizer
         return self
@@ -153,12 +153,12 @@ class PDEDataset(Dataset):
 
     @property
     def input_fields(self) -> List[str]:
-        """Raw field names composing ``sample['input']``, in channel order."""
+        """Raw field names composing `sample['input']`, in channel order."""
         return [self.input_key]
 
     @property
     def target_fields(self) -> List[str]:
-        """Raw field names composing ``sample['target']``, in channel order."""
+        """Raw field names composing `sample['target']`, in channel order."""
         return [self.target_key]
 
     #Dataset interface

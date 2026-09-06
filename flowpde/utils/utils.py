@@ -21,14 +21,14 @@ def save_model(
     Args:
         model:       The model whose state to save.
         optimizer:   Optimizer state.
-        scheduler:   LR scheduler state.  May be ``None``.
+        scheduler:   LR scheduler state.  May be `None`.
         epoch:       Current epoch number (used in auto-generated filename).
         epoch_loss:  Training loss for this epoch.
         save_dir:    Directory to save the checkpoint in.
         filename:    Optional explicit filename.  Defaults to
-                     ``model_{epoch}.pt``.
+                     `model_{epoch}.pt`.
         extra:       Optional additional entries merged into the checkpoint,
-                     e.g. ``{'ema_state': ..., 'normalizer_state': ...}``.
+                     e.g. `{'ema_state': ..., 'normalizer_state': ...}`.
                      A checkpoint is only reusable if everything needed to
                      reproduce inference travels with the weights.
 

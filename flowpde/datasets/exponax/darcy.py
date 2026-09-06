@@ -2,47 +2,49 @@ r"""
 Darcy Flow / Variable-Coefficient Poisson Data Generation
 ==========================================================
 
-Generates :math:`(\kappa, f) \to u` datasets for the variable-coefficient
+Generates $(\kappa, f) \to u$ datasets for the variable-coefficient
 elliptic PDE:
 
-.. math::
-
-    -\nabla \cdot (\kappa(x)\, \nabla u(x)) = f(x)
-    \quad \text{on } \Omega = [0, L]^d,
-    \qquad u = 0 \text{ on } \partial\Omega.
+$$
+-\nabla \cdot (\kappa(x)\, \nabla u(x)) = f(x)
+\quad \text{on } \Omega = [0, L]^d,
+\qquad u = 0 \text{ on } \partial\Omega.
+$$
 
 Unlike the constant-coefficient Poisson equation supported by Exponax,
-:math:`\kappa` is a random *spatial field*, making this a significantly more
+$\kappa$ is a random *spatial field*, making this a significantly more
 realistic and challenging operator-learning problem.  This is the standard
 Darcy-flow benchmark used in FNO, DeepONet, and related literature.
 
 **Solver**
     Second-order finite differences + fixed-step conjugate gradient
-    implemented via ``jax.lax.scan``, making the whole pipeline
-    ``jax.vmap``-compatible with no Python-level loops over samples.
+    implemented via `jax.lax.scan`, making the whole pipeline
+    `jax.vmap`-compatible with no Python-level loops over samples.
 
 **κ generation**
     Log-normal Gaussian random fields,
 
-    .. math::
+    $$
+    \kappa = \exp(c \cdot g), \quad
+    g \sim \mathcal{N}\!\left(0,\,(\tau^2 I - \Delta)^{-\alpha}\right),
+    $$
 
-        \kappa = \exp(c \cdot g), \quad
-        g \sim \mathcal{N}\!\left(0,\,(\tau^2 I - \Delta)^{-\alpha}\right),
-
-    ensuring :math:`\kappa > 0` everywhere (strict ellipticity) and matching
+    ensuring $\kappa > 0$ everywhere (strict ellipticity) and matching
     the GRF formulation used in the original FNO Darcy benchmark.
 
 **f generation**
     Smooth fixed-cutoff Fourier-series source fields.
 
-Example::
+**Example**
 
-    gen = DarcyGenerator(num_points=64, kappa_alpha=2.0, kappa_tau=3.0)
-    dataset = gen.generate(num_samples=1000, seed=42)
+```python
+gen = DarcyGenerator(num_points=64, kappa_alpha=2.0, kappa_tau=3.0)
+dataset = gen.generate(num_samples=1000, seed=42)
 
-    sample = dataset[0]
-    # sample['input']  → (2, 64, 64)  cat([κ, f], channel dim)
-    # sample['target'] → (1, 64, 64)  solution u
+sample = dataset[0]
+# sample['input']  → (2, 64, 64)  cat([κ, f], channel dim)
+# sample['target'] → (1, 64, 64)  solution u
+```
 """
 
 from dataclasses import dataclass
@@ -68,9 +70,9 @@ def _grf_1d(key, N: int, alpha: float, tau: float):
 
     Power spectrum:
 
-    .. math::
-
-        S(k) = (\tau^2 + k^2)^{-\alpha}.
+    $$
+    S(k) = (\tau^2 + k^2)^{-\alpha}.
+    $$
 
     Args:
         key:   JAX PRNG key.
@@ -79,7 +81,7 @@ def _grf_1d(key, N: int, alpha: float, tau: float):
         tau:   Inverse correlation length.  Higher → more oscillatory field.
 
     Returns:
-        JAX array of shape ``(N,)``.
+        JAX array of shape `(N,)`.
     """
     freqs  = jnp.fft.fftfreq(N) * N                    # integer wavenumbers
     sqrt_S = (tau ** 2 + freqs ** 2) ** (-alpha / 2)
@@ -93,9 +95,9 @@ def _grf_2d(key, N: int, alpha: float, tau: float):
 
     Power spectrum:
 
-    .. math::
-
-        S(\lvert k \rvert) = (\tau^2 + \lvert k \rvert^2)^{-\alpha}.
+    $$
+    S(\lvert k \rvert) = (\tau^2 + \lvert k \rvert^2)^{-\alpha}.
+    $$
 
     Args:
         key:   JAX PRNG key.
@@ -104,7 +106,7 @@ def _grf_2d(key, N: int, alpha: float, tau: float):
         tau:   Inverse correlation length.  Higher → more oscillatory field.
 
     Returns:
-        JAX array of shape ``(N, N)``.
+        JAX array of shape `(N, N)`.
     """
     freqs        = jnp.fft.fftfreq(N) * N
     KX, KY       = jnp.meshgrid(freqs, freqs, indexing='ij')
@@ -115,21 +117,21 @@ def _grf_2d(key, N: int, alpha: float, tau: float):
 
 
 def _matvec_1d(u_int, kappa, h: float):
-    r"""Apply :math:`-\partial_x(\kappa\, \partial_x \cdot)` via 1-D finite differences on interior nodes.
+    r"""Apply $-\partial_x(\kappa\, \partial_x \cdot)$ via 1-D finite differences on interior nodes.
 
     Interface permeabilities use arithmetic averaging:
 
-    .. math::
-
-        \kappa_{i \pm 1/2} = \frac{\kappa_i + \kappa_{i \pm 1}}{2}.
+    $$
+    \kappa_{i \pm 1/2} = \frac{\kappa_i + \kappa_{i \pm 1}}{2}.
+    $$
 
     Args:
-        u_int: Interior solution values, shape ``(N-2,)``.
-        kappa: Permeability on the full grid, shape ``(N,)``.
+        u_int: Interior solution values, shape `(N-2,)`.
+        kappa: Permeability on the full grid, shape `(N,)`.
         h:     Uniform grid spacing.
 
     Returns:
-        ``Au_int``, shape ``(N-2,)``.
+        `Au_int`, shape `(N-2,)`.
     """
     u_full = jnp.concatenate([jnp.zeros(1), u_int, jnp.zeros(1)])
     ki    = kappa[1:-1]                             # κ at interior nodes
@@ -143,28 +145,28 @@ def _matvec_1d(u_int, kappa, h: float):
 
 
 def _matvec_2d(u_flat, kappa, h: float, N_int: int):
-    r"""Apply :math:`-\nabla \cdot (\kappa\, \nabla \cdot)` via 2-D FD on interior nodes (five-point stencil).
+    r"""Apply $-\nabla \cdot (\kappa\, \nabla \cdot)$ via 2-D FD on interior nodes (five-point stencil).
 
     Interface permeabilities use arithmetic averaging:
 
-    .. math::
-
-        \kappa_{i+1/2,\,j} = \frac{\kappa_{i,j} + \kappa_{i+1,j}}{2},
-        \quad
-        \kappa_{i,\,j+1/2} = \frac{\kappa_{i,j} + \kappa_{i,j+1}}{2},
-        \quad \text{etc.}
+    $$
+    \kappa_{i+1/2,\,j} = \frac{\kappa_{i,j} + \kappa_{i+1,j}}{2},
+    \quad
+    \kappa_{i,\,j+1/2} = \frac{\kappa_{i,j} + \kappa_{i,j+1}}{2},
+    \quad \text{etc.}
+    $$
 
     The resulting operator is symmetric positive definite for
-    :math:`\kappa > 0` with homogeneous Dirichlet boundary conditions.
+    $\kappa > 0$ with homogeneous Dirichlet boundary conditions.
 
     Args:
-        u_flat: Interior solution values flattened, shape ``(N_int^2,)``.
-        kappa:  Permeability on the full grid, shape ``(N, N)``.
+        u_flat: Interior solution values flattened, shape `(N_int^2,)`.
+        kappa:  Permeability on the full grid, shape `(N, N)`.
         h:      Uniform grid spacing.
         N_int:  Interior grid size per dimension (= N - 2).
 
     Returns:
-        ``Au_flat``, shape ``(N_int^2,)``.
+        `Au_flat`, shape `(N_int^2,)`.
     """
     u_int  = u_flat.reshape(N_int, N_int)
     u_full = jnp.pad(u_int, 1)                     # zero Dirichlet BC padding
@@ -184,21 +186,21 @@ def _matvec_2d(u_flat, kappa, h: float, N_int: int):
 
 
 def _cg_scan(matvec, b, steps: int):
-    r"""Fixed-iteration conjugate gradient via ``jax.lax.scan``.
+    r"""Fixed-iteration conjugate gradient via `jax.lax.scan`.
 
     Runs exactly *steps* CG iterations with no convergence check, keeping the
     computation graph fully static so that the function is compatible with
-    ``jax.vmap``.  The operator *matvec* may close over ``jax.vmap``-traced
-    values (e.g., a per-sample :math:`\kappa` field).
+    `jax.vmap`.  The operator *matvec* may close over `jax.vmap`-traced
+    values (e.g., a per-sample $\kappa$ field).
 
     Args:
-        matvec: SPD linear operator :math:`A : \mathbb{R}^n \to \mathbb{R}^n`.
-        b:      Right-hand side vector, shape ``(n,)``.
+        matvec: SPD linear operator $A : \mathbb{R}^n \to \mathbb{R}^n$.
+        b:      Right-hand side vector, shape `(n,)`.
         steps:  Number of CG iterations.
 
     Returns:
-        ``(x, final_residual_sq)``: Approximate solution and
-        :math:`\lVert r \rVert^2` after the last iteration (scalar,
+        `(x, final_residual_sq)`: Approximate solution and
+        $\lVert r \rVert^2$ after the last iteration (scalar,
         useful for diagnostics).
     """
     x = jnp.zeros_like(b)
@@ -224,11 +226,11 @@ def _solve_one_1d(kappa, f, h: float, N: int, cg_steps: int):
     """Solve one 1-D Darcy sample.
 
     Args:
-        kappa: shape ``(1, N)``
-        f:     shape ``(1, N)``
+        kappa: shape `(1, N)`
+        f:     shape `(1, N)`
 
     Returns:
-        Solution u, shape ``(1, N)``, with u=0 at endpoints.
+        Solution u, shape `(1, N)`, with u=0 at endpoints.
     """
     N_int = N - 2
     f_int = f[0, 1:-1]                             # interior RHS, (N_int,)
@@ -245,11 +247,11 @@ def _solve_one_2d(kappa, f, h: float, N: int, cg_steps: int):
     """Solve one 2-D Darcy sample.
 
     Args:
-        kappa: shape ``(1, N, N)``
-        f:     shape ``(1, N, N)``
+        kappa: shape `(1, N, N)`
+        f:     shape `(1, N, N)`
 
     Returns:
-        Solution u, shape ``(1, N, N)``, with u=0 on all edges.
+        Solution u, shape `(1, N, N)`, with u=0 on all edges.
     """
     N_int      = N - 2
     f_int      = f[0, 1:-1, 1:-1].ravel()          # interior RHS, (N_int²,)
@@ -271,27 +273,27 @@ class DarcyConfig(GenerationConfig):
     r"""
     Configuration for the Darcy-flow / variable-coefficient Poisson generator.
 
-    Inherits all base fields from ``GenerationConfig`` (``num_points``,
-    ``num_samples``, ``seed``, ``torch_device``, ``obs_noise_std``,
-    ``obs_mask_fraction``).
+    Inherits all base fields from `GenerationConfig` (`num_points`,
+    `num_samples`, `seed`, `torch_device`, `obs_noise_std`,
+    `obs_mask_fraction`).
 
     Attributes:
         num_spatial_dims: Spatial dimension (1 or 2).  Default 2.
         domain_extent: Side length of the square/interval domain.  Default
             1.0 ([0,1]^d), which is the standard Darcy benchmark domain.
-        kappa_alpha: Spectral exponent :math:`\alpha` for the :math:`\kappa`
+        kappa_alpha: Spectral exponent $\alpha$ for the $\kappa$
             GRF power spectrum
-            :math:`S(\lvert k\rvert) \propto (\tau^2 + \lvert k\rvert^2)^{-\alpha}`.
+            $S(\lvert k\rvert) \propto (\tau^2 + \lvert k\rvert^2)^{-\alpha}$.
             Higher → smoother permeability.
-            :math:`\alpha = 2.0` matches the original FNO Darcy benchmark.
-        kappa_tau: GRF inverse correlation length :math:`\tau`.  Higher →
-            more oscillatory :math:`\kappa` with smaller features.
-        kappa_scale: Standard deviation of :math:`\log\kappa` before
+            $\alpha = 2.0$ matches the original FNO Darcy benchmark.
+        kappa_tau: GRF inverse correlation length $\tau$.  Higher →
+            more oscillatory $\kappa$ with smaller features.
+        kappa_scale: Standard deviation of $\log\kappa$ before
             exponentiation.  Scale 1.0 gives
-            :math:`\kappa \in [e^{-2}, e^{2}] \approx [0.14,\, 7.4]`
+            $\kappa \in [e^{-2}, e^{2}] \approx [0.14,\, 7.4]$
             roughly.  Increase for higher contrast between high- and
             low-permeability regions.
-        kappa_min: Hard lower bound on :math:`\kappa`
+        kappa_min: Hard lower bound on $\kappa$
             (positivity / ellipticity floor).
         f_cutoff: Fourier cutoff for the random source term.
         f_amplitude_min: Minimum per-sample amplitude scaling for f.
@@ -329,12 +331,12 @@ class DarcyDataset(Dataset):
 
     Returns samples in the flow-trainer-compatible format:
 
-    **Forward** (``problem='forward'``)::
+    **Forward** (`problem='forward'`):
 
         sample['input']  → (2, *spatial)  cat([κ, f], dim=0)
         sample['target'] → (1, *spatial)  solution u
 
-    **Inverse** (``problem='inverse'``)::
+    **Inverse** (`problem='inverse'`):
 
         inverse_mode='both':
             sample['input']  → (1, *spatial)  observed u
@@ -348,11 +350,11 @@ class DarcyDataset(Dataset):
             sample['input']  → (2, *spatial)  cat([u, κ], dim=0)
             sample['target'] → (1, *spatial)  source f
 
-    When ``obs_mask_fraction < 1.0``, the observation mask is appended to
-    ``sample['input']`` as an extra channel and ``sample['obs_mask']`` (shape
-    ``(1, *spatial)``, float, 1 = observed, 0 = hidden) is also returned.
+    When `obs_mask_fraction < 1.0`, the observation mask is appended to
+    `sample['input']` as an extra channel and `sample['obs_mask']` (shape
+    `(1, *spatial)`, float, 1 = observed, 0 = hidden) is also returned.
 
-    All raw tensors (κ, f, u) are accessible via ``get_raw_data()``.
+    All raw tensors (κ, f, u) are accessible via `get_raw_data()`.
     """
 
     def __init__(
@@ -385,7 +387,7 @@ class DarcyDataset(Dataset):
         so all data is standardized with the same statistics.
 
         Returns:
-            ``self``, for chaining.
+            `self`, for chaining.
         """
         self.normalizer = normalizer
         return self
@@ -399,7 +401,7 @@ class DarcyDataset(Dataset):
 
     @property
     def input_fields(self) -> List[str]:
-        """Raw field names composing ``sample['input']``, in channel order."""
+        """Raw field names composing `sample['input']`, in channel order."""
         if self.problem == 'forward':
             return ['kappa', 'source']
         if self.inverse_mode == 'both':
@@ -410,7 +412,7 @@ class DarcyDataset(Dataset):
 
     @property
     def target_fields(self) -> List[str]:
-        """Raw field names composing ``sample['target']``, in channel order."""
+        """Raw field names composing `sample['target']`, in channel order."""
         if self.problem == 'forward':
             return ['solution']
         if self.inverse_mode == 'both':
@@ -466,7 +468,7 @@ class DarcyDataset(Dataset):
         return self.metadata.get('config', {})
 
     def get_raw_data(self) -> dict:
-        """Raw tensor dict with keys ``'kappa'``, ``'source'``, ``'solution'``."""
+        """Raw tensor dict with keys `'kappa'`, `'source'`, `'solution'`."""
         return self.data
 
 
@@ -477,22 +479,24 @@ class DarcyGenerator(ExponaxDatasetGenerator):
 
     Workflow:
 
-        1. Draw per-sample log-normal :math:`\kappa` fields from a GRF.
+        1. Draw per-sample log-normal $\kappa$ fields from a GRF.
         2. Draw per-sample smooth Fourier source fields.
-        3. Solve :math:`-\nabla\cdot(\kappa\,\nabla u)=f` via FD + fixed-step CG for each sample.
+        3. Solve $-\nabla\cdot(\kappa\,\nabla u)=f$ via FD + fixed-step CG for each sample.
         4. Optionally apply additive noise and/or spatial masking to the
            solution field (for inverse-problem datasets).
-        5. Convert to PyTorch tensors and return a ``DarcyDataset``.
+        5. Convert to PyTorch tensors and return a `DarcyDataset`.
 
     Args:
-        config: A ``DarcyConfig`` instance.  Keyword arguments are forwarded
-                to ``DarcyConfig`` if *config* is ``None``.
+        config: A `DarcyConfig` instance.  Keyword arguments are forwarded
+                to `DarcyConfig` if *config* is `None`.
 
-    Example::
+    **Example**
 
-        gen = DarcyGenerator(num_points=64)
-        train = gen.generate(num_samples=1000, seed=0)
-        test  = gen.generate(num_samples=200,  seed=1)
+    ```python
+    gen = DarcyGenerator(num_points=64)
+    train = gen.generate(num_samples=1000, seed=0)
+    test  = gen.generate(num_samples=200,  seed=1)
+    ```
     """
 
     config_cls = DarcyConfig
@@ -509,15 +513,15 @@ class DarcyGenerator(ExponaxDatasetGenerator):
         Generate a Darcy-flow dataset.
 
         Args:
-            num_samples: Override ``config.num_samples``.
-            seed:        Override ``config.seed``.
-            problem:     ``'forward'`` (κ,f → u) or ``'inverse'``.
+            num_samples: Override `config.num_samples`.
+            seed:        Override `config.seed`.
+            problem:     `'forward'` (κ,f → u) or `'inverse'`.
             inverse_mode: Inverse mapping to use:
-                ``'both'`` for u → (κ,f), ``'coefficient'`` for (u,f) → κ,
-                or ``'source'`` for (u,κ) → f.
+                `'both'` for u → (κ,f), `'coefficient'` for (u,f) → κ,
+                or `'source'` for (u,κ) → f.
 
         Returns:
-            A ``DarcyDataset``.
+            A `DarcyDataset`.
         """
         cfg, n, s = self.resolve_run(num_samples, seed)
         self.validate_problem(problem)

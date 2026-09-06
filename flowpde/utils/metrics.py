@@ -34,20 +34,22 @@ Flow-model-specific metrics
   predictions, then compute relative L2 of the ensemble mean.  This separates
   the model's mean-prediction quality from its uncertainty.
 
-No external dependencies beyond PyTorch are required.  The ``neuraloperator``
-library provides a similar ``LpLoss`` class, but implementing these here keeps
+No external dependencies beyond PyTorch are required.  The `neuraloperator`
+library provides a similar `LpLoss` class, but implementing these here keeps
 the dependency footprint minimal and makes the definitions transparent.
 
-Usage::
+Usage:
 
-    from flowpde.utils.metrics import relative_l2_error, EvalMetrics
+```python
+from flowpde.utils.metrics import relative_l2_error, EvalMetrics
 
-    # Single batch
-    err = relative_l2_error(pred, target)   # scalar tensor
+# Single batch
+err = relative_l2_error(pred, target)   # scalar tensor
 
-    # All metrics at once
-    em = EvalMetrics()
-    results = em(pred, target)   # dict
+# All metrics at once
+em = EvalMetrics()
+results = em(pred, target)   # dict
+```
 """
 
 from __future__ import annotations
@@ -82,16 +84,16 @@ def _norm(x: Tensor, p: float = 2.0) -> Tensor:
 def relative_l2_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
     r"""Relative L2 error — the primary neural-operator benchmark metric.
 
-    .. math::
-
-        \varepsilon = \frac{1}{N} \sum_{i=1}^{N}
-            \frac{\lVert \hat{u}_i - u_i \rVert_2}
-                  {\lVert u_i \rVert_2 + \epsilon}
+    $$
+    \varepsilon = \frac{1}{N} \sum_{i=1}^{N}
+        \frac{\lVert \hat{u}_i - u_i \rVert_2}
+              {\lVert u_i \rVert_2 + \epsilon}
+    $$
 
     Norms are taken over all non-batch dimensions (channels + spatial).
 
     Args:
-        pred:   Predicted tensor, shape ``(B, C, *spatial)``.
+        pred:   Predicted tensor, shape `(B, C, *spatial)`.
         target: Ground-truth tensor, same shape.
         eps:    Small constant added to the denominator for numerical
                 stability (prevents division by zero for near-zero targets).
@@ -107,7 +109,7 @@ def relative_l2_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor
 def relative_l2_error_batch(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
     """Per-sample relative L2 errors.
 
-    Like :func:`relative_l2_error` but returns a ``(B,)`` tensor instead of
+    Like `relative_l2_error()` but returns a `(B,)` tensor instead of
     averaging, useful for inspecting the error distribution.
     """
     diff_norm   = _norm(pred - target, p=2.0)
@@ -119,7 +121,7 @@ def mse(pred: Tensor, target: Tensor) -> Tensor:
     """Mean Squared Error averaged over all dimensions including batch.
 
     Args:
-        pred:   Predicted tensor, shape ``(B, C, *spatial)``.
+        pred:   Predicted tensor, shape `(B, C, *spatial)`.
         target: Ground-truth tensor, same shape.
 
     Returns:
@@ -134,7 +136,7 @@ def mae(pred: Tensor, target: Tensor) -> Tensor:
     Less sensitive to large outliers than MSE.
 
     Args:
-        pred:   Predicted tensor, shape ``(B, C, *spatial)``.
+        pred:   Predicted tensor, shape `(B, C, *spatial)`.
         target: Ground-truth tensor, same shape.
 
     Returns:
@@ -149,14 +151,14 @@ def relative_max_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tenso
     Normalises by the standard deviation of each sample's target field so
     the result is comparable across PDEs with different solution scales.
 
-    .. math::
-
-        \varepsilon_{\infty} = \frac{1}{N} \sum_{i=1}^{N}
-            \frac{\max_{x} | \hat{u}_i(x) - u_i(x) |}
-                  {\mathrm{std}(u_i) + \epsilon}
+    $$
+    \varepsilon_{\infty} = \frac{1}{N} \sum_{i=1}^{N}
+        \frac{\max_{x} | \hat{u}_i(x) - u_i(x) |}
+              {\mathrm{std}(u_i) + \epsilon}
+    $$
 
     Args:
-        pred:   Predicted tensor, shape ``(B, C, *spatial)``.
+        pred:   Predicted tensor, shape `(B, C, *spatial)`.
         target: Ground-truth tensor, same shape.
         eps:    Stability constant.
 
@@ -173,7 +175,7 @@ def h1_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
     r"""Relative H¹ semi-norm error for 2-D spatial fields.
 
     The H¹ semi-norm adds a gradient penalty on top of the L2 value
-    mismatch.  It is the standard "H1 loss" used in the ``neuraloperator``
+    mismatch.  It is the standard "H1 loss" used in the `neuraloperator`
     library and is meaningful for smooth PDEs (Poisson, Darcy) whose
     solutions are in the Sobolev space H¹.
 
@@ -182,22 +184,22 @@ def h1_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
     relative L2 error (only one spatial axis, same as L2 loss for
     1-D problems where the FD gradient information is less informative).
 
-    .. math::
-
-        \varepsilon_{H^1} = \frac{1}{N} \sum_{i=1}^{N}
-            \frac{\lVert \hat{u}_i - u_i \rVert_{H^1}}
-                  {\lVert u_i \rVert_{H^1} + \epsilon}
+    $$
+    \varepsilon_{H^1} = \frac{1}{N} \sum_{i=1}^{N}
+        \frac{\lVert \hat{u}_i - u_i \rVert_{H^1}}
+              {\lVert u_i \rVert_{H^1} + \epsilon}
+    $$
 
     where
 
-    .. math::
-
-        \lVert v \rVert_{H^1}^2
-            = \lVert v \rVert_2^2
-            + \sum_{d} \lVert \partial_d v \rVert_2^2.
+    $$
+    \lVert v \rVert_{H^1}^2
+        = \lVert v \rVert_2^2
+        + \sum_{d} \lVert \partial_d v \rVert_2^2.
+    $$
 
     Args:
-        pred:   Predicted tensor, shape ``(B, C, *spatial)``.  Must be at
+        pred:   Predicted tensor, shape `(B, C, *spatial)`.  Must be at
                 least 2-D in space for the gradient term to be computed.
         target: Ground-truth tensor, same shape.
         eps:    Stability constant.
@@ -245,17 +247,17 @@ def ensemble_relative_l2(
       explores the solution space.
 
     Args:
-        preds:  List of ``K`` prediction tensors, each shape
-                ``(B, C, *spatial)``.  All tensors must share the same shape.
-        target: Ground-truth tensor, shape ``(B, C, *spatial)``.
+        preds:  List of `K` prediction tensors, each shape
+                `(B, C, *spatial)`.  All tensors must share the same shape.
+        target: Ground-truth tensor, shape `(B, C, *spatial)`.
         eps:    Stability constant.
 
     Returns:
         Dict with keys:
 
-        * ``"mean_rel_l2"``   — relative L2 of the ensemble mean.
-        * ``"sample_spread"`` — normalised ensemble standard deviation.
-        * ``"best_rel_l2"``   — lowest per-sample relative L2 across ensemble
+        * `"mean_rel_l2"`   — relative L2 of the ensemble mean.
+        * `"sample_spread"` — normalised ensemble standard deviation.
+        * `"best_rel_l2"`   — lowest per-sample relative L2 across ensemble
             members (oracle bound; useful for theoretical analysis).
     """
     if len(preds) == 0:
@@ -296,18 +298,20 @@ class EvalMetrics:
     By default computes relative L2, H1, MAE, and relative max error.
     You can restrict which metrics are computed by passing a list of names.
 
-    Available metric names: ``"rel_l2"``, ``"h1"``, ``"mse"``, ``"mae"``,
-    ``"rel_max"``.
+    Available metric names: `"rel_l2"`, `"h1"`, `"mse"`, `"mae"`,
+    `"rel_max"`.
 
-    Example::
+    **Example**
 
-        em = EvalMetrics()
-        results = em(pred, target)
-        print(results)
-        # {'rel_l2': tensor(0.0312), 'h1': tensor(0.0421), ...}
+    ```python
+    em = EvalMetrics()
+    results = em(pred, target)
+    print(results)
+    # {'rel_l2': tensor(0.0312), 'h1': tensor(0.0421), ...}
 
-        em_fast = EvalMetrics(metrics=["rel_l2"])
-        results = em_fast(pred, target)
+    em_fast = EvalMetrics(metrics=["rel_l2"])
+    results = em_fast(pred, target)
+    ```
     """
 
     _ALL = ("rel_l2", "h1", "mse", "mae", "rel_max")
@@ -327,7 +331,7 @@ class EvalMetrics:
         """Compute all configured metrics.
 
         Args:
-            pred:   Predicted tensor, shape ``(B, C, *spatial)``.
+            pred:   Predicted tensor, shape `(B, C, *spatial)`.
             target: Ground-truth tensor, same shape.
 
         Returns:

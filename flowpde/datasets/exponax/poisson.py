@@ -12,10 +12,12 @@ The Poisson equation:
 Given a smooth sine/cosine source term *f*, the solver computes the
 solution *u* spectrally.
 
-Example::
+**Example**
 
-    generator = PoissonGenerator(num_points=64, domain_extent=10.0)
-    dataset = generator.generate(num_samples=1000, seed=42)
+```python
+generator = PoissonGenerator(num_points=64, domain_extent=10.0)
+dataset = generator.generate(num_samples=1000, seed=42)
+```
 """
 
 from dataclasses import dataclass
@@ -76,7 +78,7 @@ class PoissonGenerator(ExponaxDatasetGenerator):
             problem: 'forward' (data->solution) or 'inverse' (solution->data).
 
         Returns:
-            A ``PDEDataset`` with keys ``'source'`` and ``'solution'``.
+            A `PDEDataset` with keys `'source'` and `'solution'`.
         """
         cfg, n, s = self.resolve_run(num_samples, seed)
         self.validate_problem(problem)

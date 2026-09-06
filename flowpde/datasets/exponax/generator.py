@@ -26,7 +26,7 @@ class FourierFieldConfig:
 
 
 def log_uniform(key, n: int, min_value: float, max_value: float):
-    """Draw ``n`` positive scalars from a log-uniform distribution."""
+    """Draw `n` positive scalars from a log-uniform distribution."""
     values = jax.random.uniform(
         key,
         shape=(n,),

@@ -3,25 +3,27 @@ Sampling-Based Validation for Flow Models
 ==========================================
 
 The flow-matching training loss is a poor model-selection signal.  It regresses
-the velocity ``x_1 - x_0`` from ``x_t`` alone, but many ``(x_0, x_1)`` pairs
-produce the same ``x_t``, so the loss has a large irreducible floor set by that
+the velocity `x_1 - x_0` from `x_t` alone, but many `(x_0, x_1)` pairs
+produce the same `x_t`, so the loss has a large irreducible floor set by that
 ambiguity.  Two checkpoints can differ substantially in sample quality while
 their losses differ in the fourth decimal.
 
 The quantity you actually care about is the error of solutions produced by
-integrating the learned ODE.  :class:`FlowEvaluator` measures exactly that:
+integrating the learned ODE.  `FlowEvaluator` measures exactly that:
 it samples through the solver and scores against ground truth in physical
 units.
 
-Usage::
+Usage:
 
-    evaluator = FlowEvaluator(
-        objective, val_loader,
-        normalizer=normalizer, target_fields=val_ds.target_fields,
-    )
-    trainer = Trainer(objective, optimizer, validator=evaluator, monitor='rel_l2')
+```python
+evaluator = FlowEvaluator(
+    objective, val_loader,
+    normalizer=normalizer, target_fields=val_ds.target_fields,
+)
+trainer = Trainer(objective, optimizer, validator=evaluator, monitor='rel_l2')
+```
 
-Sampling noise is drawn from a fixed seed, so the same ``x_0`` is used at every
+Sampling noise is drawn from a fixed seed, so the same `x_0` is used at every
 validation call.  Without that, epoch-to-epoch differences would be dominated
 by which noise happened to be drawn rather than by model improvement.
 """
@@ -41,8 +43,8 @@ class FlowEvaluator:
     Evaluate a flow objective by ODE sampling against ground-truth solutions.
 
     Args:
-        objective: Object exposing ``sample(condition=..., ...)`` (e.g.
-            ``FlowMatchingObjective``), or one exposing ``.flow`` that does.
+        objective: Object exposing `sample(condition=..., ...)` (e.g.
+            `FlowMatchingObjective`), or one exposing `.flow` that does.
         data_loader: Validation/test loader yielding batches with the
             configured target and condition keys.
         target_key: Batch key holding ground truth.  Defaults to the
@@ -52,25 +54,25 @@ class FlowEvaluator:
         n_steps: ODE integration steps.
         solver: Solver name passed through to the sampler.
         max_batches: Cap the number of validation batches, for cheap
-            in-training monitoring.  ``None`` uses the whole loader.
-        normalizer: ``FieldNormalizer`` used on the data.  When given,
+            in-training monitoring.  `None` uses the whole loader.
+        normalizer: `FieldNormalizer` used on the data.  When given,
             predictions and targets are mapped back to physical units before
             scoring, so reported errors are comparable across normalization
             choices.
         target_fields: Raw field names composing the target, in channel order
-            (``dataset.target_fields``).  Required for denormalization.
-        metrics: Metric names for :class:`~flowpde.utils.metrics.EvalMetrics`.
-            Defaults to ``['rel_l2']``, which is cheap enough to run often.
+            (`dataset.target_fields`).  Required for denormalization.
+        metrics: Metric names for `EvalMetrics`.
+            Defaults to `['rel_l2']`, which is cheap enough to run often.
         seed: Seed for the fixed evaluation noise.
-        ensemble_size: Samples drawn per condition.  With ``1`` (default) the
+        ensemble_size: Samples drawn per condition.  With `1` (default) the
             metrics score a single draw.  With more, the ensemble *mean* is
             scored and the ensemble spread is reported alongside it — the
             uncertainty-quantification view.
         solver_kwargs: Extra keyword arguments forwarded to the sampler.
 
-    Returns from ``__call__``:
-        Dict of metric name → float.  With ``ensemble_size > 1`` the keys
-        ``mean_rel_l2`` and ``sample_spread`` are added.
+    Returns from `__call__`:
+        Dict of metric name → float.  With `ensemble_size > 1` the keys
+        `mean_rel_l2` and `sample_spread` are added.
     """
 
     def __init__(

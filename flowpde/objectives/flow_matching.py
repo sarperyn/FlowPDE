@@ -29,7 +29,7 @@ from flowpde.flows.components import (
 
 class FlowMatchingObjective(nn.Module):
     """
-    Flow-matching objective for ``NeuralODEFlow``.
+    Flow-matching objective for `NeuralODEFlow`.
     
     This objective trains a neural ODE flow by supervised velocity regression
     along interpolation paths instead of maximum likelihood. Multiple flow
@@ -43,17 +43,17 @@ class FlowMatchingObjective(nn.Module):
     Standard Configurations:
     
     1. **Flow Matching** (default):
-       ```
+       ```python
        FlowMatchingObjective(flow, path='linear', time_sampler='uniform')
        ```
     
     2. **Rectified Flow**:
-       ```
+       ```python
        FlowMatchingObjective(flow, path='linear', time_sampler='logit_normal')
        ```
     
     3. **OT-Conditional Flow Matching**:
-       ```
+       ```python
        FlowMatchingObjective(flow, path='ot_conditional', sigma=0.01)
        ```
     
@@ -64,7 +64,7 @@ class FlowMatchingObjective(nn.Module):
         time_sampler: Time distribution ('uniform', 'logit_normal') or TimeSampler
         coupling: Coupling strategy ('independent', 'minibatch_ot') or Coupling
         source: Source distribution ('gaussian', 'batch') or SourceDistribution.
-            Use 'batch' (``BatchSource``) to train on precomputed (x_0, x_1)
+            Use 'batch' (`BatchSource`) to train on precomputed (x_0, x_1)
             pairs, which is what reflow requires.
         sigma: Noise level for OT-conditional path (default: 0.0)
         target_key: Default batch key for target tensors (default: 'u')
@@ -118,13 +118,13 @@ class FlowMatchingObjective(nn.Module):
         batch: Optional[Dict[str, Tensor]] = None,
     ) -> Tensor:
         """
-        Draw ``x_0`` from the configured source distribution.
+        Draw `x_0` from the configured source distribution.
 
         Args:
-            shape: Shape of ``x_0``, matching the target.
+            shape: Shape of `x_0`, matching the target.
             device: Device to place the result on.
             batch: Training batch, forwarded so sources such as
-                ``BatchSource`` can read precomputed values from it.
+                `BatchSource` can read precomputed values from it.
                 Omitted at inference, where sources fall back to noise.
         """
         return self.source(shape, device, batch)
@@ -292,37 +292,37 @@ class FlowMatchingObjective(nn.Module):
         $$S = \\int_0^1 \\mathbb{E}\\left[\\lVert (Z_1 - Z_0)
               - v_\\theta(Z_t, t) \\rVert^2\\right] dt,$$
 
-        so :math:`S = 0` exactly when every trajectory is a straight line
+        so $S = 0$ exactly when every trajectory is a straight line
         traversed at constant velocity — which is what makes few-step Euler
         sampling accurate, and what reflow is meant to improve.
 
         Two modes are available:
 
-        - ``'trajectory'`` (default): integrate the learned ODE and measure
+        - `'trajectory'` (default): integrate the learned ODE and measure
           deviation along the model's **own** trajectories.  This is the
           quantity that predicts few-step sampling quality.
-        - ``'interpolant'``: measure deviation along the training interpolant
-          between sampled ``(x_0, x_1)`` pairs.  Cheaper (no ODE solve) and it
+        - `'interpolant'`: measure deviation along the training interpolant
+          between sampled `(x_0, x_1)` pairs.  Cheaper (no ODE solve) and it
           reports how far the learned marginal velocity sits from the
           conditional target, but it does *not* describe the sampling paths.
 
         Args:
             batch: Batch with target and condition tensors.
             n_time_points: Number of time points at which velocity is probed.
-            mode: ``'trajectory'`` or ``'interpolant'``.
-            n_steps: ODE steps used to build trajectories (``'trajectory'``).
-            solver: ODE solver used to build trajectories (``'trajectory'``).
+            mode: `'trajectory'` or `'interpolant'`.
+            n_steps: ODE steps used to build trajectories (`'trajectory'`).
+            solver: ODE solver used to build trajectories (`'trajectory'`).
             target_key: Batch key for target data.
             condition_key: Batch key for conditioning data.
 
         Returns:
             Dictionary with:
 
-            - ``'straightness'``: the integral above (0 = perfectly straight).
-            - ``'normalized_straightness'``: divided by the mean squared chord
+            - `'straightness'`: the integral above (0 = perfectly straight).
+            - `'normalized_straightness'`: divided by the mean squared chord
                 length, making it dimensionless and comparable across datasets
                 and normalization choices.
-            - ``'chord_norm'``: mean chord length, for reference.
+            - `'chord_norm'`: mean chord length, for reference.
         """
         if mode not in {"trajectory", "interpolant"}:
             raise ValueError(

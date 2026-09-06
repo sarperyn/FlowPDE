@@ -23,11 +23,11 @@ trainer = Trainer(objective, optimizer, ...)
 
 | Module | Description |
 |--------|-------------|
-| [**Core**](core/base_flow.md) | Abstract bases (`BaseFlow`, `BaseSolver`, `BaseConditioner`) and the config system |
+| [**Core**](core/base_flow.md) | Abstract bases: `BaseFlow`, `BaseSolver`, `BaseConditioner` |
 | [**Flows**](flows/neural_ode.md) | `NeuralODEFlow` and its pluggable components |
 | [**Objectives**](objectives/flow_matching.md) | Flow matching and maximum likelihood |
 | [**Models**](models/mlp.md) | Velocity-field backbones: MLP, UNet, ConvNet, ResNet |
 | [**Solvers**](solvers/ode_solvers.md) | ODE integration for inference |
 | [**Trainers**](trainers/trainer.md) | `Trainer`, EMA, `FlowEvaluator`, reflow |
 | [**Datasets**](datasets/exponax.md) | Exponax PDE data generation and normalization |
-| [**Utils**](utils/metrics.md) | Metrics and visualization |
+| [**Utils**](utils/metrics.md) | Error metrics, uncertainty-quantification metrics, and general utilities |

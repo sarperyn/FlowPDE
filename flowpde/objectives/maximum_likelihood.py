@@ -10,7 +10,7 @@ from flowpde.flows import NeuralODEFlow
 
 class MaximumLikelihoodObjective(nn.Module):
     r"""
-    Negative log likelihood objective for ``NeuralODEFlow``.
+    Negative log likelihood objective for `NeuralODEFlow`.
 
     The objective uses the flow's exact log probability computation:
 

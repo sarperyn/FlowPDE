@@ -23,6 +23,11 @@ the right starting point for understanding what the flow is being asked to learn
 
     Initial-condition → final-state pairs, with trajectory rollouts.
 
+-   :material-notebook: **[Darcy Dataset — EDA](https://github.com/sarperyn/FlowPDE/blob/main/notebooks/darcy_dataset.ipynb)**
+
+    Log-normal coefficient fields $\kappa$, sources $f$, and the solutions they
+    produce — including the noisy, partially observed inverse setup.
+
 </div>
 
 ## Training and Analysis
@@ -53,5 +58,6 @@ pip install -e ".[docs]"   # includes jupyter via mkdocs-jupyter
 jupyter notebook notebooks/
 ```
 
-Detailed ablations and benchmark configurations will be documented in the project
-report. The notebooks remain the public, runnable examples for the library.
+Detailed ablations and benchmark configurations are in the
+[project report](https://github.com/sarperyn/FlowPDE/blob/main/report.pdf). The
+notebooks remain the public, runnable examples for the library.

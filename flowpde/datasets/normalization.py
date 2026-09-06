@@ -3,14 +3,14 @@ Field Normalization for PDE Datasets
 =====================================
 
 Flow matching transports a standard Gaussian base distribution to the data
-distribution.  When the data has a very different scale from ``N(0, I)`` the
-velocity targets ``x_1 - x_0`` inherit the raw data magnitude, which makes the
+distribution.  When the data has a very different scale from `N(0, I)` the
+velocity targets `x_1 - x_0` inherit the raw data magnitude, which makes the
 regression problem badly conditioned.  Standardizing each PDE field to roughly
 zero mean and unit variance removes that mismatch.
 
 Statistics must always be fitted on the **training split** and then reused
 verbatim for validation/test data, otherwise the evaluation leaks information
-about the held-out set::
+about the held-out set:
 
     train_ds = generator.generate(num_samples=1000, seed=0)
     test_ds  = generator.generate(num_samples=200, seed=1)
@@ -20,8 +20,8 @@ about the held-out set::
     test_ds.set_normalizer(normalizer)      # same statistics, not refitted
 
 Metrics should be reported in physical units, so predictions are mapped back
-with :meth:`FieldNormalizer.denormalize` (or
-:meth:`FieldNormalizer.denormalize_channels` for targets that concatenate
+with `denormalize()` (or
+`denormalize_channels()` for targets that concatenate
 several fields) before computing errors.
 """
 
@@ -37,13 +37,13 @@ class FieldNormalizer:
     """
     Per-field mean/std standardization keyed by PDE field name.
 
-    Fields are addressed by their raw name (``'source'``, ``'solution'``,
-    ``'kappa'``, ``'initial'``, ``'final'``) rather than by their role in the
+    Fields are addressed by their raw name (`'source'`, `'solution'`,
+    `'kappa'`, `'initial'`, `'final'`) rather than by their role in the
     learning problem, so a single normalizer stays correct when the same data
     is used for both the forward and the inverse direction.
 
     Args:
-        stats: Mapping ``{field_name: {'mean': float, 'std': float}}``.
+        stats: Mapping `{field_name: {'mean': float, 'std': float}}`.
         eps: Floor applied to standard deviations to avoid division by zero.
 
     Example:
@@ -83,18 +83,18 @@ class FieldNormalizer:
         Build a normalizer from statistics a dataset already carries.
 
         Generators compute per-field mean/std at construction time and store
-        them in ``metadata['stats']``, so no second pass over the data is
+        them in `metadata['stats']`, so no second pass over the data is
         needed.
 
         Args:
-            dataset: Dataset exposing ``get_stats()`` (``PDEDataset``,
-                ``DarcyDataset``).
+            dataset: Dataset exposing `get_stats()` (`PDEDataset`,
+                `DarcyDataset`).
             fields: Restrict to these field names.  Defaults to every field
-                that has statistics, excluding ``'obs_mask'``.
+                that has statistics, excluding `'obs_mask'`.
             eps: Floor applied to standard deviations.
 
         Returns:
-            A fitted ``FieldNormalizer``.
+            A fitted `FieldNormalizer`.
         """
         if not hasattr(dataset, "get_stats"):
             raise TypeError(
@@ -154,7 +154,7 @@ class FieldNormalizer:
         Standardize a field to zero mean and unit variance.
 
         Fields with no registered statistics pass through unchanged, so
-        auxiliary channels such as ``obs_mask`` stay binary.
+        auxiliary channels such as `obs_mask` stay binary.
         """
         if name not in self.stats:
             return tensor
@@ -177,12 +177,12 @@ class FieldNormalizer:
         """
         Denormalize a tensor whose channels concatenate several fields.
 
-        Used for targets such as Darcy's ``inverse_mode='both'``, where the
-        target is ``cat([kappa, source])``.
+        Used for targets such as Darcy's `inverse_mode='both'`, where the
+        target is `cat([kappa, source])`.
 
         Args:
             names: Field name per channel group, in channel order.
-            tensor: Tensor with ``len(names)`` equal-sized channel groups.
+            tensor: Tensor with `len(names)` equal-sized channel groups.
             channel_dim: Dimension holding the channels (default: 1).
 
         Returns:
@@ -211,7 +211,7 @@ class FieldNormalizer:
         return {"stats": {k: dict(v) for k, v in self.stats.items()}, "eps": self.eps}
 
     def load_state_dict(self, state: Dict[str, object]) -> "FieldNormalizer":
-        """Restore statistics saved by :meth:`state_dict`."""
+        """Restore statistics saved by `state_dict()`."""
         self.eps = float(state.get("eps", 1e-8))
         self.stats = {}
         for name, field_stats in state["stats"].items():

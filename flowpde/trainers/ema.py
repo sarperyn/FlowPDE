@@ -9,18 +9,20 @@ settling into it.  Averaging weights over training suppresses that jitter and
 is standard practice for this model family — the averaged weights are what you
 evaluate and ship, while the raw weights keep training.
 
-Usage::
+Usage:
 
-    ema = EMA(model, decay=0.999)
+```python
+ema = EMA(model, decay=0.999)
 
-    for batch in loader:
-        loss = objective.compute_loss(batch)
-        loss.backward()
-        optimizer.step()
-        ema.update()              # after every optimizer step
+for batch in loader:
+    loss = objective.compute_loss(batch)
+    loss.backward()
+    optimizer.step()
+    ema.update()              # after every optimizer step
 
-    with ema.average_parameters():
-        metrics = evaluate(model)  # model temporarily holds EMA weights
+with ema.average_parameters():
+    metrics = evaluate(model)  # model temporarily holds EMA weights
+```
 """
 
 from __future__ import annotations
@@ -39,14 +41,14 @@ class EMA:
 
     The shadow weights follow
 
-    .. math::
+    $$
+    \\theta^{\\text{EMA}} \\leftarrow d \\, \\theta^{\\text{EMA}}
+                                    + (1 - d) \\, \\theta
+    $$
 
-        \\theta^{\\text{EMA}} \\leftarrow d \\, \\theta^{\\text{EMA}}
-                                        + (1 - d) \\, \\theta
-
-    with decay :math:`d`.  Early in training the shadow is dominated by its
-    (arbitrary) initial value, so ``warmup`` ramps the effective decay up from
-    0 following :math:`\\min(d, (1 + n) / (10 + n))` at step :math:`n`.  This
+    with decay $d$.  Early in training the shadow is dominated by its
+    (arbitrary) initial value, so `warmup` ramps the effective decay up from
+    0 following $\\min(d, (1 + n) / (10 + n))$ at step $n$.  This
     is the schedule used by most diffusion implementations and it removes the
     need to tune a separate "start EMA at step N" threshold.
 
@@ -125,7 +127,7 @@ class EMA:
 
     @torch.no_grad()
     def copy_to(self, model: Optional[nn.Module] = None) -> None:
-        """Write the averaged weights into ``model``, permanently."""
+        """Write the averaged weights into `model`, permanently."""
         model = model if model is not None else self.model
         for name, param in model.named_parameters():
             if name in self.shadow:
@@ -143,7 +145,7 @@ class EMA:
 
     @torch.no_grad()
     def restore(self, model: Optional[nn.Module] = None) -> None:
-        """Put back the weights saved by :meth:`store`."""
+        """Put back the weights saved by `store()`."""
         if self._backup is None:
             raise RuntimeError("restore() called without a matching store()")
         model = model if model is not None else self.model
@@ -171,7 +173,7 @@ class EMA:
             self.restore(model)
 
     def to(self, device: torch.device) -> "EMA":
-        """Move the shadow weights to ``device``."""
+        """Move the shadow weights to `device`."""
         self.device = device
         for name, tensor in self.shadow.items():
             self.shadow[name] = tensor.to(device)
@@ -187,7 +189,7 @@ class EMA:
         }
 
     def load_state_dict(self, state: Dict[str, Any]) -> "EMA":
-        """Restore state saved by :meth:`state_dict`."""
+        """Restore state saved by `state_dict()`."""
         self.decay = state["decay"]
         self.warmup = state.get("warmup", True)
         self.num_updates = state["num_updates"]
