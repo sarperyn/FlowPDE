@@ -102,11 +102,3 @@ With pip, first install the development extra and then run pytest directly:
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
-
-## Building the Docs
-
-```bash
-python -m pip install -e ".[docs]"
-python -m mkdocs serve    # local preview at http://127.0.0.1:8000
-python -m mkdocs build    # static site into site/
-```
