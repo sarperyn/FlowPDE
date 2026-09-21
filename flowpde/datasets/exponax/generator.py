@@ -120,10 +120,26 @@ class ExponaxDatasetGenerator:
         problem: Literal["forward", "inverse"],
         n: int,
         seed: int,
-    ) -> None:
+    ) -> Dict[str, Any]:
+        """
+        Add observation noise and/or spatial masking, in place.
+
+        Returns:
+            A dict to forward to `wrap_dataset`. It carries `'clean_stats'`
+            (pass as `extra_stats`) and `'observation_key'` (pass inside
+            `extra_metadata`), both empty when no augmentation applied.
+        """
         cfg = self.config
         if problem != "inverse":
-            return
+            return {}
+        if cfg.obs_noise_std <= 0.0 and cfg.obs_mask_fraction >= 1.0:
+            return {}
+
+        # Statistics must describe the *clean* field. Fitting them on the
+        # masked observation deflates the std by roughly
+        # sqrt(obs_mask_fraction) and shifts the mean, so the same normalizer
+        # would put clean data on a different scale.
+        clean_stats = {observation_key: compute_normalization_stats(data[observation_key])}
 
         if cfg.obs_noise_std > 0.0:
             noise_gen = torch.Generator().manual_seed(seed + 1)
@@ -146,12 +162,18 @@ class ExponaxDatasetGenerator:
             data[observation_key] = data[observation_key] * obs_mask
             data["obs_mask"] = obs_mask
 
+        return {
+            "clean_stats": clean_stats,
+            "observation_key": observation_key,
+        }
+
     def wrap_dataset(
         self,
         data: Dict[str, torch.Tensor],
         *,
         problem: Literal["forward", "inverse"],
         extra_stats: Optional[Dict[str, Dict[str, float]]] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
         **dataset_kwargs,
     ):
         stats = {
@@ -166,6 +188,10 @@ class ExponaxDatasetGenerator:
             "stats": stats,
             "config": self.config.to_dict(),
         }
+        # Generation diagnostics (e.g. solver residuals) belong in metadata,
+        # not in `data`: they are not fields and must not be normalized.
+        if extra_metadata:
+            metadata.update(extra_metadata)
         return self.dataset_cls(
             data,
             problem=problem,

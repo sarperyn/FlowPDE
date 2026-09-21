@@ -71,8 +71,9 @@ class FlowEvaluator:
         solver_kwargs: Extra keyword arguments forwarded to the sampler.
 
     Returns from `__call__`:
-        Dict of metric name → float.  With `ensemble_size > 1` the keys
-        `mean_rel_l2` and `sample_spread` are added.
+        Dict of metric name → float.  With `ensemble_size > 1` each
+        configured metric is also reported under `mean_<name>` (so the
+        default metric list yields `mean_rel_l2`), plus `sample_spread`.
     """
 
     def __init__(
@@ -199,7 +200,11 @@ class FlowEvaluator:
                     ).reshape(self.ensemble_size, batch_size, *target_shape)
                     spread = physical.std(dim=0)
                     scale = target_physical.abs().mean().clamp(min=1e-8)
-                    batch_metrics["mean_rel_l2"] = batch_metrics["rel_l2"]
+                    # Every configured metric already scores the ensemble
+                    # mean, so alias them all rather than assuming 'rel_l2'
+                    # is among them.
+                    for name in list(batch_metrics):
+                        batch_metrics[f"mean_{name}"] = batch_metrics[name]
                     batch_metrics["sample_spread"] = (
                         spread.mean() / scale
                     ).item()

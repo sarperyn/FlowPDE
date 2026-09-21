@@ -222,6 +222,16 @@ def _cg_scan(matvec, b, steps: int):
     return x, residuals[-1]
 
 
+def _relative_residual(residual_sq, b):
+    r"""$\lVert r \rVert / \lVert b \rVert$ after the final CG iteration.
+
+    CG starts from $x = 0$, so this is the factor by which the initial
+    residual was reduced -- the only honest measure of whether the generated
+    "ground truth" actually solves the PDE.
+    """
+    return jnp.sqrt(residual_sq) / jnp.maximum(jnp.linalg.norm(b), 1e-30)
+
+
 def _solve_one_1d(kappa, f, h: float, N: int, cg_steps: int):
     """Solve one 1-D Darcy sample.
 
@@ -230,7 +240,8 @@ def _solve_one_1d(kappa, f, h: float, N: int, cg_steps: int):
         f:     shape `(1, N)`
 
     Returns:
-        Solution u, shape `(1, N)`, with u=0 at endpoints.
+        `(u, relative_residual)`: solution of shape `(1, N)` with u=0 at the
+        endpoints, and the CG relative residual for that sample.
     """
     N_int = N - 2
     f_int = f[0, 1:-1]                             # interior RHS, (N_int,)
@@ -238,9 +249,9 @@ def _solve_one_1d(kappa, f, h: float, N: int, cg_steps: int):
     def matvec(u):
         return _matvec_1d(u, kappa[0], h)
 
-    u_int, _ = _cg_scan(matvec, f_int, cg_steps)
+    u_int, residual_sq = _cg_scan(matvec, f_int, cg_steps)
     u_full   = jnp.concatenate([jnp.zeros(1), u_int, jnp.zeros(1)])
-    return u_full[jnp.newaxis]                      # (1, N)
+    return u_full[jnp.newaxis], _relative_residual(residual_sq, f_int)
 
 
 def _solve_one_2d(kappa, f, h: float, N: int, cg_steps: int):
@@ -251,7 +262,8 @@ def _solve_one_2d(kappa, f, h: float, N: int, cg_steps: int):
         f:     shape `(1, N, N)`
 
     Returns:
-        Solution u, shape `(1, N, N)`, with u=0 on all edges.
+        `(u, relative_residual)`: solution of shape `(1, N, N)` with u=0 on all
+        edges, and the CG relative residual for that sample.
     """
     N_int      = N - 2
     f_int      = f[0, 1:-1, 1:-1].ravel()          # interior RHS, (N_int²,)
@@ -259,9 +271,9 @@ def _solve_one_2d(kappa, f, h: float, N: int, cg_steps: int):
     def matvec(u_flat):
         return _matvec_2d(u_flat, kappa[0], h, N_int)
 
-    u_int_flat, _ = _cg_scan(matvec, f_int, cg_steps)
+    u_int_flat, residual_sq = _cg_scan(matvec, f_int, cg_steps)
     u_full        = jnp.pad(u_int_flat.reshape(N_int, N_int), 1)
-    return u_full[jnp.newaxis]                      # (1, N, N)
+    return u_full[jnp.newaxis], _relative_residual(residual_sq, f_int)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -299,8 +311,16 @@ class DarcyConfig(GenerationConfig):
         f_amplitude_min: Minimum per-sample amplitude scaling for f.
         f_amplitude_max: Maximum per-sample amplitude scaling for f.
         cg_steps: Fixed number of conjugate-gradient iterations used to solve
-            the linear system.  500 is conservative for a 64×64 grid; reduce
-            to ~100 for fast prototyping.
+            the linear system.  The solver is unpreconditioned, so the count
+            needed grows with the grid and with the contrast in κ.  Measured
+            on a 64×64 grid at the default κ: 100 steps leaves a relative
+            residual of 2e-1 (the "solutions" are 20 % wrong), 500 leaves
+            8e-4, and 2000 converges to machine precision.  Do not lower this
+            for speed without checking `cg_tolerance` still passes.
+        cg_tolerance: Largest acceptable CG relative residual, checked over
+            every generated sample.  `generate()` raises if it is exceeded,
+            so an under-converged dataset fails loudly instead of quietly
+            becoming wrong ground truth.  Set to `None` to skip the check.
     """
     # Domain — override base defaults for the standard Darcy setting
     num_spatial_dims: int   = 2
@@ -318,7 +338,8 @@ class DarcyConfig(GenerationConfig):
     f_amplitude_max: float = 5.0
 
     # Solver
-    cg_steps: int = 500
+    cg_steps: int = 2000
+    cg_tolerance: Optional[float] = 1e-6
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -361,7 +382,7 @@ class DarcyDataset(Dataset):
         self,
         data: dict,
         problem: Literal['forward', 'inverse'] = 'forward',
-        inverse_mode: Literal['both', 'coefficient', 'source'] = 'coefficient',
+        inverse_mode: Literal['both', 'coefficient', 'source'] = 'both',
         metadata: Optional[dict] = None,
         normalizer: Optional[FieldNormalizer] = None,
     ):
@@ -369,6 +390,8 @@ class DarcyDataset(Dataset):
         self.problem  = problem
         self.inverse_mode = inverse_mode
         self.metadata = metadata or {}
+        # Which raw field carries the (possibly masked) observation, if any.
+        self.observation_key = self.metadata.get('observation_key')
         self.normalizer = normalizer
 
         if self.problem not in {'forward', 'inverse'}:
@@ -397,18 +420,35 @@ class DarcyDataset(Dataset):
         value = self.data[name][idx]
         if self.normalizer is not None:
             value = self.normalizer.normalize(name, value)
+            # Re-apply the mask after standardizing: normalization subtracts
+            # the field mean, which would turn the "not observed" zeros into a
+            # nonzero constant and contradict the obs_mask channel.
+            if name == self.observation_key:
+                obs_mask = self.data.get('obs_mask')
+                if obs_mask is not None:
+                    value = value * obs_mask[idx]
         return value
 
     @property
     def input_fields(self) -> List[str]:
-        """Raw field names composing `sample['input']`, in channel order."""
+        """Raw field names composing `sample['input']`, in channel order.
+
+        The observation mask is appended to the input as an extra channel, so
+        it is listed here too; it carries no statistics and so passes through
+        denormalization unchanged.
+        """
         if self.problem == 'forward':
-            return ['kappa', 'source']
-        if self.inverse_mode == 'both':
-            return ['solution']
-        if self.inverse_mode == 'coefficient':
-            return ['solution', 'source']
-        return ['solution', 'kappa']
+            fields = ['kappa', 'source']
+        elif self.inverse_mode == 'both':
+            fields = ['solution']
+        elif self.inverse_mode == 'coefficient':
+            fields = ['solution', 'source']
+        else:
+            fields = ['solution', 'kappa']
+
+        if self.data.get('obs_mask') is not None:
+            fields.append('obs_mask')
+        return fields
 
     @property
     def target_fields(self) -> List[str]:
@@ -577,7 +617,21 @@ class DarcyGenerator(ExponaxDatasetGenerator):
             def solve_one(kappa, f):
                 return _solve_one_2d(kappa, f, h, N, cfg.cg_steps)
 
-        solutions = jax.vmap(solve_one)(kappas, sources)   # (n, 1, *spatial)
+        solutions, cg_residuals = jax.vmap(solve_one)(kappas, sources)
+        # solutions: (n, 1, *spatial);  cg_residuals: (n,)
+
+        worst_residual = float(jnp.max(cg_residuals))
+        if cfg.cg_tolerance is not None and worst_residual > cfg.cg_tolerance:
+            raise RuntimeError(
+                f"Darcy CG did not converge: worst relative residual "
+                f"{worst_residual:.3e} over {n} samples exceeds "
+                f"cg_tolerance={cfg.cg_tolerance:.1e} after "
+                f"{cfg.cg_steps} iterations. These solutions do not solve the "
+                f"PDE and must not be used as ground truth. Raise cg_steps "
+                f"(unpreconditioned CG needs more of them as the grid or the "
+                f"contrast in kappa grows), or relax cg_tolerance if you "
+                f"genuinely accept this error level."
+            )
 
         # ── 4. Convert, optionally augment inverse observations, and wrap ──
         data = self.to_torch_data({
@@ -585,7 +639,7 @@ class DarcyGenerator(ExponaxDatasetGenerator):
             'source': sources,
             'solution': solutions,
         })
-        self.apply_observation_augmentation(
+        augmentation = self.apply_observation_augmentation(
             data,
             observation_key='solution',
             problem=problem,
@@ -597,11 +651,19 @@ class DarcyGenerator(ExponaxDatasetGenerator):
         print(
             f"Generated Darcy {d}D dataset: {n} samples, {spatial_str} grid, "
             f"κ ~ LogNormal(α={cfg.kappa_alpha}, τ={cfg.kappa_tau}, "
-            f"scale={cfg.kappa_scale}), CG steps={cfg.cg_steps}"
+            f"scale={cfg.kappa_scale}), CG steps={cfg.cg_steps}, "
+            f"worst CG residual={worst_residual:.2e}"
         )
 
         return self.wrap_dataset(
             data,
             problem=problem,
             inverse_mode=inverse_mode,
+            extra_stats=augmentation.pop("clean_stats", None),
+            extra_metadata={
+                **augmentation,
+                "cg_residual_max": worst_residual,
+                "cg_residual_mean": float(jnp.mean(cg_residuals)),
+                "cg_steps": cfg.cg_steps,
+            },
         )

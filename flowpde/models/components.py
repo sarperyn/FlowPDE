@@ -9,12 +9,11 @@ This module contains reusable building blocks used across all architectures:
 """
 
 import math
-from typing import Any, Optional, Type
+from typing import Any, Iterable, Optional, Type
 from functools import partial
 
 import torch
 from torch import nn, Tensor
-import torch.nn.functional as F
 
 
 
@@ -275,20 +274,43 @@ class DimensionalConv(nn.Module):
 # Weight Initialization
 # =============================================================================
 
-def init_weights(module: nn.Module, zero_init_last: bool = True):
+def init_weights(
+    module: nn.Module,
+    zero_init_last: bool = True,
+    final_modules: Optional[Iterable[nn.Module]] = None,
+):
     """
-    Initialize weights using Kaiming initialization with zero-init for final layer.
-    
+    Initialize weights using Kaiming initialization, zeroing the final layer.
+
+    Zero-initializing the output layer makes the model predict v = 0 at step
+    zero, which is the standard stable start for flow-matching and diffusion
+    training.
+
     Args:
-        module: Module to initialize
-        zero_init_last: If True, zero-initialize layers named 'output_*' or 'final_*'
+        module: Module to initialize.
+        zero_init_last: If True, zero-initialize the layers named by
+            `final_modules`.
+        final_modules: The layers that count as "final", given explicitly.
+            Every architecture in this package passes its own, because name
+            matching gets this wrong in both directions: it cannot tell a
+            model's `output_conv` from an attention block's internal
+            `out_proj`, and it silently misses final layers whose names do
+            not advertise the role (such as the last conv of an upsampling
+            path). When None, falls back to the old name-matching behaviour.
     """
+    use_explicit = final_modules is not None
+    explicit_ids = {id(m) for m in (final_modules or []) if m is not None}
+
+    def is_final(name: str, layer: nn.Module, tags) -> bool:
+        if not zero_init_last:
+            return False
+        if use_explicit:
+            return id(layer) in explicit_ids
+        return any(tag in name for tag in tags)
+
     for name, m in module.named_modules():
         if isinstance(m, (nn.Conv1d, nn.Conv2d, nn.ConvTranspose1d, nn.ConvTranspose2d)):
-            # Check if this is a final/output layer
-            is_output = any(tag in name for tag in ['output', 'final', 'out_conv', 'proj_out'])
-            
-            if zero_init_last and is_output:
+            if is_final(name, m, ['output', 'final', 'out_conv', 'proj_out']):
                 nn.init.zeros_(m.weight)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
@@ -296,11 +318,9 @@ def init_weights(module: nn.Module, zero_init_last: bool = True):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-        
+
         elif isinstance(m, nn.Linear):
-            is_output = any(tag in name for tag in ['output', 'final', 'out_proj', 'proj_out'])
-            
-            if zero_init_last and is_output:
+            if is_final(name, m, ['output', 'final', 'out_proj', 'proj_out']):
                 nn.init.zeros_(m.weight)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
@@ -308,7 +328,7 @@ def init_weights(module: nn.Module, zero_init_last: bool = True):
                 nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-        
+
         elif isinstance(m, (nn.GroupNorm, nn.BatchNorm1d, nn.BatchNorm2d, nn.LayerNorm)):
             if m.weight is not None:
                 nn.init.ones_(m.weight)

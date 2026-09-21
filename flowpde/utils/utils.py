@@ -6,6 +6,26 @@ import numpy as np
 import torch
 
 
+def resolve_device(device: Optional[str] = None) -> str:
+    """Pick a device, defaulting to one that actually exists on this machine.
+
+    A hard-coded ``'cuda'`` default turns every CPU-only machine into a crash
+    on import of a training script.  MPS is not auto-selected: it is chosen
+    explicitly, because several operations silently fall back or are missing
+    there and that is not a good default to inherit.
+
+    Args:
+        device: An explicit device string, or ``None`` to choose one.
+
+    Returns:
+        ``'cuda'`` when available, otherwise ``'cpu'``; ``device`` unchanged
+        when given.
+    """
+    if device is not None:
+        return device
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
 def save_model(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,

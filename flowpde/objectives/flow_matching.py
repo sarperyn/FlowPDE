@@ -179,7 +179,7 @@ class FlowMatchingObjective(nn.Module):
             target_key=target_key or self.target_key,
             condition_key=condition_key or self.condition_key,
         )
-        self.flow._target_dim = x_1.flatten(start_dim=1).shape[1]
+        self.flow.set_target_dim(x_1.shape[1])
         batch_size = x_1.shape[0]
         
         # Draw x_0 from the source. Passing the batch lets BatchSource
@@ -209,70 +209,62 @@ class FlowMatchingObjective(nn.Module):
     def sample(
         self,
         condition: Tensor,
-        n_steps: int = 50,
-        solver: str = 'euler',
+        n_steps: Optional[int] = None,
+        solver: Optional[str] = None,
         x_init: Optional[Tensor] = None,
         target_shape: Optional[Union[int, Tuple[int, ...]]] = None,
         return_trajectory: bool = False,
+        no_grad: bool = True,
         **solver_kwargs: Any
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
         Generate samples by solving the flow ODE.
-        
+
         Integrates the learned velocity field from t=0 (noise) to t=1 (data):
-        
+
         $$\\frac{dx}{dt} = v_\\theta(x_t, f, t), \\quad x_0 \\sim \\mathcal{N}(0, I)$$
-        
+
+        The integration itself is `NeuralODEFlow.sample`; what this
+        adds is the starting point, drawn from the objective's configured
+        `source` so inference matches how the model was trained.
+
         Args:
             condition: Conditioning tensor (B, *)
-            n_steps: Number of integration steps
-            solver: ODE solver ('euler', 'midpoint', 'rk4', 'dopri5')
-            x_init: Optional initial noise (default: sample from N(0,I))
+            n_steps: Number of integration steps.  Defaults to the flow's
+                `ode_n_steps`; required for fixed-step solvers.
+            solver: ODE solver ('euler', 'midpoint', 'rk4', 'dopri5').
+                Defaults to the flow's `ode_method`.
+            x_init: Optional initial noise (default: drawn from `source`)
             target_shape: Shape of generated targets excluding batch, or a
-                flattened target dimension. Required before training when the
-                target and condition dimensions differ.
+                flattened target dimension.  Only needed when the flow has
+                not recorded its target dimension and no `x_init` is given.
             return_trajectory: If True, return full trajectory
-            **solver_kwargs: Additional solver arguments
-        
+            no_grad: Integrate under `torch.no_grad()` (default).  Pass False
+                to differentiate through sampling.
+            **solver_kwargs: Additional solver arguments (`rtol`, `atol`,
+                `adjoint`, `method_options`).  Unknown names raise.
+
         Returns:
             Generated samples (B, dim)
             If return_trajectory: (samples, trajectory) where trajectory is (n_steps+1, B, dim)
         """
-        from flowpde.solvers import ODEFlowSolver
-        
-        # Flatten condition
-        condition_flat = condition.flatten(start_dim=1).to(self.model_device)
-        batch_size = condition_flat.shape[0]
-        if x_init is not None:
-            dim = x_init.flatten(start_dim=1).shape[1]
-        elif target_shape is not None:
-            if isinstance(target_shape, int):
-                dim = target_shape
-            else:
-                dim = 1
-                for size in target_shape:
-                    dim *= size
-        else:
-            dim = getattr(self.flow, "_target_dim", condition_flat.shape[1])
-        
-        # Sample initial noise if not provided
         if x_init is None:
-            x_init = self.sample_base_distribution((batch_size, dim), self.model_device)
-        else:
-            x_init = x_init.flatten(start_dim=1).to(self.model_device)
-        
-        # Create solver and integrate
-        ode_solver = ODEFlowSolver(model=self.model, method=solver, **solver_kwargs)
-        
-        result = ode_solver.sample(
-            condition=condition_flat,
-            x_init=x_init,
+            condition_flat = condition.flatten(start_dim=1).to(self.model_device)
+            dim = self.flow._resolve_target_dim(target_shape)
+            x_init = self.sample_base_distribution(
+                (condition_flat.shape[0], dim), self.model_device
+            )
+
+        return self.flow.sample(
+            condition=condition,
             n_steps=n_steps,
+            solver=solver,
+            x_init=x_init,
             return_trajectory=return_trajectory,
+            no_grad=no_grad,
+            **solver_kwargs,
         )
-        
-        return result
-    
+
     def estimate_straightness(
         self,
         batch: Dict[str, Tensor],
@@ -354,8 +346,12 @@ class FlowMatchingObjective(nn.Module):
                     z_0, z_1 = trajectory[0], trajectory[-1]
                     chord = z_1 - z_0
 
-                    # Probe interior times, avoiding the exact endpoints where
-                    # the velocity field is least constrained.
+                    # Probe the whole trajectory, endpoints included: the
+                    # straightness integral in Liu et al. runs over the
+                    # closed interval. (The 'interpolant' mode below uses
+                    # [0.01, 0.99] instead, so the two modes are not
+                    # numerically comparable -- they are different
+                    # estimators, as the docstring says.)
                     indices = torch.linspace(
                         0, trajectory.shape[0] - 1, n_time_points
                     ).round().long()

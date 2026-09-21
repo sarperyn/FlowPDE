@@ -5,19 +5,16 @@ Dimension-agnostic CNN that handles both 1D and 2D spatial data through
 explicit configuration rather than heuristic inference.
 """
 
-from typing import Optional, Union, Tuple
+from typing import Optional
 
 import torch
 from torch import nn, Tensor
 
 from .components import (
-    FourierTimeEmbedding,
     TimeMLPEmbedding,
-    DimensionalConv,
     get_conv_layer,
     get_norm_layer,
     get_activation,
-    get_num_groups,
     expand_time_embedding,
     init_weights,
 )
@@ -196,8 +193,8 @@ class ConvNet(nn.Module):
         self.output_act = get_activation(activation)
         self.output_conv = Conv(hidden_channels, solution_channels, 3, padding=1)
         
-        # Initialize weights (zero-init final layer)
-        init_weights(self, zero_init_last=True)
+        # Initialize weights (zero-init the velocity head)
+        init_weights(self, zero_init_last=True, final_modules=[self.output_conv])
     
     def _reshape_input(self, tensor: Tensor, channels: int) -> Tensor:
         """Reshape flattened input to spatial format."""
@@ -221,9 +218,6 @@ class ConvNet(nn.Module):
         Returns:
             Velocity field v(x, f, t), same shape as x (or flattened if return_spatial=False)
         """
-        # Track if input was flattened
-        was_flattened = x.dim() == 2
-        
         # Reshape inputs to spatial format
         x = self._reshape_input(x, self.solution_channels)
         f = self._reshape_input(f, self.condition_channels)

@@ -246,7 +246,7 @@ class ResNet(nn.Module):
         spatial_dim: int,
         spatial_size: int,
         base_channels: int = 64,
-        blocks_per_stage: List[int] = [2, 2, 2, 2],
+        blocks_per_stage: Optional[List[int]] = None,
         solution_channels: int = 1,
         condition_channels: int = 1,
         kernel_size: int = 3,
@@ -260,6 +260,10 @@ class ResNet(nn.Module):
 
         if spatial_dim not in [1, 2]:
             raise ValueError(f"spatial_dim must be 1 or 2, got {spatial_dim}")
+
+        # A list default would be shared by every ResNet ever constructed.
+        if blocks_per_stage is None:
+            blocks_per_stage = [2, 2, 2, 2]
 
         self.spatial_dim = spatial_dim
         self.spatial_size = spatial_size
@@ -343,8 +347,10 @@ class ResNet(nn.Module):
             self.upsample = None
             self.output_conv = Conv(current_channels, solution_channels, 3, padding=1)
         
-        # Initialize weights
-        init_weights(self, zero_init_last=True)
+        # Initialize weights (zero-init the velocity head, whichever path
+        # produced it -- the upsampling branch ends in a conv too)
+        final_layer = self.output_conv if self.upsample is None else self.upsample[-1]
+        init_weights(self, zero_init_last=True, final_modules=[final_layer])
     
     def _build_upsample_path(
         self, 

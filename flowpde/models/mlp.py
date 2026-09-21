@@ -107,8 +107,8 @@ class MLP(nn.Module):
         # Output projection (zero-initialized for stable training)
         self.output_proj = nn.Linear(hidden_dim, input_dim)
         
-        # Initialize weights
-        init_weights(self, zero_init_last=True)
+        # Initialize weights (zero-init the velocity head)
+        init_weights(self, zero_init_last=True, final_modules=[self.output_proj])
     
     def forward(self, x: Tensor, f: Tensor, t: Tensor) -> Tensor:
         """

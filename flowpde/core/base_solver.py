@@ -7,12 +7,12 @@ Defines the interface for all ODE/SDE solvers in FlowPDE.
 from abc import ABC, abstractmethod
 from typing import Optional, Callable, Union, Tuple, Dict, Any
 import torch
-from torch import nn, Tensor
+from torch import Tensor
 
 
 class BaseSolver(ABC):
     """
-    Abstract base class for ODE/SDE solvers.
+    Abstract base class for ODE solvers.
     
     This defines the common interface for numerical integration methods
     used to solve differential equations in normalizing flows.
@@ -20,7 +20,7 @@ class BaseSolver(ABC):
     Solvers can be:
     - Fixed-step (e.g., Euler, RK4)
     - Adaptive step-size (e.g., Dopri5, Dopri8)
-    - Stochastic (SDE solvers) (NOT IMPLEMENTED YET)
+    - Stochastic (SDE solvers) (Future work)
     """
     
     def __init__(

@@ -123,119 +123,53 @@ class BaseFlow(ABC, nn.Module):
         """
         raise NotImplementedError
     
+    @abstractmethod
     def sample(
         self,
-        n_samples: int,
-        condition: Optional[Tensor] = None,
-        device: str = 'cuda',
+        condition: Tensor,
         **kwargs: Any
-    ) -> Tensor:
+    ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
-        Generate samples from the flow.
-        
-        Default implementation: sample from base distribution and apply inverse transform.
-        Can be overridden for custom sampling strategies.
-        
+        Generate samples from the flow, given conditioning information.
+
+        Every flow in this package is conditional -- it models p(x | c) for a
+        PDE condition c -- so the condition is the first argument and the
+        batch size comes from it.  Subclasses define the rest of their
+        sampling controls (solver, step count, initial noise).
+
         Args:
-            n_samples: Number of samples to generate
-            condition: Optional conditioning information
-            device: Device for computation
-            **kwargs: Additional sampling parameters
-            
+            condition: Conditioning information (batch_size, cond_dim)
+            **kwargs: Flow-specific sampling parameters
+
         Returns:
-            Generated samples (n_samples, dim)
+            Generated samples
         """
-        # Sample from base distribution
-        if condition is not None:
-            batch_size = condition.shape[0]
-            if condition.dim() > 2:
-                dim = condition.flatten(start_dim=1).shape[1]
-            else:
-                dim = condition.shape[1]
-        else:
-            batch_size = n_samples
-            # Need to infer dimension - subclasses should override if needed
-            dim = self._get_data_dim()
-        
-        z = self._sample_base_distribution(batch_size, dim, device)
-        
-        # Transform to data space
-        x = self.inverse_transform(z, condition, **kwargs)
-        if isinstance(x, tuple):
-            x = x[0]  # Discard log_det if returned
-        
-        return x
-    
+        raise NotImplementedError
+
+    @abstractmethod
     def log_prob(
         self,
         x: Tensor,
-        condition: Optional[Tensor] = None,
+        condition: Tensor,
         **kwargs: Any
     ) -> Tensor:
         """
         Compute log probability of data under the flow.
-        
-        Default implementation using change of variables formula.
-        Can be overridden for flows with different probability computation.
-        
+
+        The base measure and how its density is evaluated are the subclass's
+        business: they have to agree with whatever that subclass samples
+        from, and a generic implementation here could only guess.
+
         Args:
             x: Data points (batch_size, dim)
-            condition: Optional conditioning information
+            condition: Conditioning information
             **kwargs: Additional parameters
-            
+
         Returns:
             Log probabilities (batch_size,)
         """
-        # Transform to latent space
-        result = self.forward_transform(x, condition, **kwargs)
-        if isinstance(result, tuple):
-            z, log_det = result
-        else:
-            z = result
-            log_det = torch.zeros(x.shape[0], device=x.device)
-        
-        # Base distribution log prob
-        log_pz = self._base_log_prob(z)
-        
-        # Change of variables: log p(x) = log p(z) + log |det J|
-        log_px = log_pz + log_det
-        
-        return log_px
-    
-    def _sample_base_distribution(
-        self,
-        batch_size: int,
-        dim: int,
-        device: str
-    ) -> Tensor:
-        """Sample from the base distribution."""
-        if self.base_distribution == 'gaussian':
-            return torch.randn(batch_size, dim, device=device)
-        elif self.base_distribution == 'uniform':
-            return torch.rand(batch_size, dim, device=device)
-        else:
-            raise ValueError(f"Unknown base distribution: {self.base_distribution}")
-    
-    def _base_log_prob(self, z: Tensor) -> Tensor:
-        """Compute log probability under base distribution."""
-        if self.base_distribution == 'gaussian':
-            # Standard normal log prob
-            return -0.5 * (z.pow(2).sum(dim=1) + z.shape[1] * torch.log(2 * torch.tensor(torch.pi)))
-        elif self.base_distribution == 'uniform':
-            # Uniform [0,1] log prob
-            return torch.zeros(z.shape[0], device=z.device)
-        else:
-            raise ValueError(f"Unknown base distribution: {self.base_distribution}")
-    
-    def _get_data_dim(self) -> int:
-        """
-        Get the dimension of the data space.
-        Subclasses should override this if they track the data dimension.
-        """
-        raise NotImplementedError(
-            "Data dimension unknown. Please provide condition or override _get_data_dim()"
-        )
-    
+        raise NotImplementedError
+
     def get_config(self) -> Dict[str, Any]:
         """Get configuration dictionary for the flow."""
         return {

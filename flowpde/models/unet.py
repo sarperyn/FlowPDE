@@ -6,25 +6,23 @@ PDE solving where multi-scale feature extraction is beneficial.
 """
 
 import math
-from typing import List, Optional
+from typing import Optional
 
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
 
 from .components import (
-    FourierTimeEmbedding,
     TimeMLPEmbedding,
     get_conv_layer,
     get_conv_transpose_layer,
     get_pool_layer,
     get_norm_layer,
     get_activation,
-    get_num_groups,
     expand_time_embedding,
     init_weights,
 )
-from flowpde.core.base_conditioner import BaseConditioner, ConcatConditioner, FiLMConditioner, NullConditioner
+from flowpde.core.base_conditioner import BaseConditioner, ConcatConditioner
 from flowpde.models.convnet import _input_channels_for_conditioner
 
 
@@ -245,12 +243,13 @@ class UNet(nn.Module):
             self.time_projs_decoder.append(nn.Linear(time_emb_dim, skip_ch))
             in_ch = skip_ch
         
-        # Output projection
+        # Output projection. The last decoder block emits encoder_channels[0],
+        # which is base_channels only when max_channels does not clamp it.
         Conv = get_conv_layer(spatial_dim)
-        self.output_conv = Conv(base_channels, solution_channels, 1)
+        self.output_conv = Conv(encoder_channels[0], solution_channels, 1)
         
-        # Initialize weights
-        init_weights(self, zero_init_last=True)
+        # Initialize weights (zero-init the velocity head)
+        init_weights(self, zero_init_last=True, final_modules=[self.output_conv])
     
     def _reshape_input(self, tensor: Tensor, channels: int) -> Tensor:
         """Reshape flattened input to spatial format."""

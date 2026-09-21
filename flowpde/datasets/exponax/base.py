@@ -99,6 +99,8 @@ class PDEDataset(Dataset):
         self.metadata = metadata or {}
         self.stats = self.metadata.get('stats', {})
         self.config = self.metadata.get('config', {})
+        # Which raw field carries the (possibly masked) observation, if any.
+        self.observation_key = self.metadata.get('observation_key')
         self.normalizer = normalizer
 
         self._setup_keys()
@@ -149,12 +151,28 @@ class PDEDataset(Dataset):
         value = self.data[name][idx]
         if self.normalizer is not None:
             value = self.normalizer.normalize(name, value)
+            # Re-apply the mask after standardizing: normalization subtracts
+            # the field mean, which would turn the "not observed" zeros into a
+            # nonzero constant and contradict the obs_mask channel.
+            if name == self.observation_key:
+                obs_mask = self.data.get('obs_mask')
+                if obs_mask is not None:
+                    value = value * obs_mask[idx]
         return value
 
     @property
     def input_fields(self) -> List[str]:
-        """Raw field names composing `sample['input']`, in channel order."""
-        return [self.input_key]
+        """Raw field names composing `sample['input']`, in channel order.
+
+        The mask is appended to the input as an extra channel, so it has to
+        appear here too or the names no longer line up with the channels --
+        which is exactly what `denormalize_channels` splits on.  It has no
+        statistics, so it passes through denormalization unchanged.
+        """
+        fields = [self.input_key]
+        if self.data.get('obs_mask') is not None:
+            fields.append('obs_mask')
+        return fields
 
     @property
     def target_fields(self) -> List[str]:

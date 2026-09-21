@@ -24,6 +24,7 @@ from .utils import (
     save_model,
     print_stats,
     plot_curve,
+    resolve_device,
 )
 
 # Uncertainty quantification metrics
@@ -54,6 +55,7 @@ __all__ = [
     "save_model",
     "print_stats",
     "plot_curve",
+    "resolve_device",
 
     # Uncertainty quantification
     "UQMetrics",

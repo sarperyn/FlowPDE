@@ -13,12 +13,15 @@ Available solvers:
 Refactored to inherit from flowpde.core.base_solver.ODESolver
 """
 
+from contextlib import nullcontext
+
 import torch
 from torch import nn, Tensor
 from typing import Optional, Tuple, Union, List, Callable, Dict, Any
 from torchdiffeq import odeint, odeint_adjoint
 
 from flowpde.core.base_solver import ODESolver
+from flowpde.utils.utils import resolve_device
 
 
 class VelocityField(nn.Module):
@@ -55,11 +58,9 @@ class VelocityField(nn.Module):
         batch_size = x.shape[0]
         t_batch = t.expand(batch_size, 1)
         
-        # Compute velocity
-        with torch.set_grad_enabled(torch.is_grad_enabled()):
-            v = self.model(x, self.condition, t_batch)
-        
-        return v
+        # Compute velocity. The caller owns the grad context: sample()
+        # sets it, and training needs the graph kept.
+        return self.model(x, self.condition, t_batch)
 
 
 class ODEFlowSolver(ODESolver):
@@ -200,7 +201,10 @@ class ODEFlowSolver(ODESolver):
             options = {}
             n_steps = len(t_eval) - 1
             dt = (t_eval[-1] - t_eval[0]) / n_steps
-            options['step_size'] = dt.item()
+            # torchdiffeq infers the direction from t_eval and wants a
+            # positive magnitude; a signed dt makes backward integration
+            # (data -> latent, t: 1 -> 0) fail outright.
+            options['step_size'] = abs(dt.item())
         else:
             options = {'dtype': torch.float32}
         
@@ -220,14 +224,14 @@ class ODEFlowSolver(ODESolver):
         
         return trajectory
     
-    @torch.no_grad()
     def sample(
         self,
         condition: Tensor,
         x_init: Optional[Tensor] = None,
         t_span: Tuple[float, float] = (0.0, 1.0),
         return_trajectory: bool = False,
-        n_steps: Optional[int] = None
+        n_steps: Optional[int] = None,
+        no_grad: bool = True,
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
         Sample from flow matching model by solving ODE.
@@ -239,13 +243,40 @@ class ODEFlowSolver(ODESolver):
             return_trajectory: If True, return full trajectory
             n_steps: Number of evaluation points (for fixed-step solvers or trajectory)
                      If None, adaptive solvers choose steps automatically
-        
+            no_grad: Integrate under `torch.no_grad()` (default).  Pass False
+                     to keep the autograd graph, which is what differentiating
+                     through sampling and the adjoint solver both require.
+
+        Note:
+            The model is switched to eval mode for the duration of the call and
+            restored afterwards, so sampling mid-training does not silently
+            disable dropout or freeze BatchNorm statistics.
+
         Returns:
             samples: Final samples at t_end (batch_size, dim) or (batch_size, H, W)
             trajectory: (optional) Full trajectory if return_trajectory=True
         """
+        was_training = self.model.training
         self.model.eval()
-        
+        try:
+            with torch.no_grad() if no_grad else nullcontext():
+                return self._sample(
+                    condition, x_init, t_span, return_trajectory, n_steps
+                )
+        finally:
+            # Eval mode is scoped to this call, never a permanent change to the
+            # caller's model.
+            self.model.train(was_training)
+
+    def _sample(
+        self,
+        condition: Tensor,
+        x_init: Optional[Tensor],
+        t_span: Tuple[float, float],
+        return_trajectory: bool,
+        n_steps: Optional[int],
+    ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
+        """Body of `sample()`; assumes mode and grad context are already set."""
         # Store original shapes for reshaping
         condition_original_shape = condition.shape
         if condition.dim() > 2:
@@ -279,6 +310,12 @@ class ODEFlowSolver(ODESolver):
         
         # Create time span
         t_start, t_end = t_span
+        if self.method in self.FIXED_STEP_SOLVERS and n_steps is None and not return_trajectory:
+            raise ValueError(
+                f"n_steps is required for the fixed-step solver "
+                f"'{self.method}'. Without it the integration silently "
+                f"collapses to a single step across the whole interval."
+            )
         if return_trajectory or (self.method in self.FIXED_STEP_SOLVERS and n_steps is not None):
             # Fixed evaluation points
             if n_steps is None:
@@ -327,7 +364,7 @@ def sample_with_ode_solver(
     rtol: float = 1e-5,
     atol: float = 1e-7,
     n_steps: Optional[int] = None,
-    device: str = 'cuda',
+    device: Optional[str] = None,
     return_trajectory: bool = False
 ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
     """
@@ -342,7 +379,8 @@ def sample_with_ode_solver(
         rtol: Relative tolerance
         atol: Absolute tolerance
         n_steps: Number of steps (for fixed-step solvers)
-        device: Device for computation
+        device: Device for computation.  Defaults to CUDA when available,
+            CPU otherwise.
         return_trajectory: If True, return full trajectory
     
     Returns:
@@ -357,6 +395,7 @@ def sample_with_ode_solver(
         ...     device='cuda'
         ... )
     """
+    device = resolve_device(device)
     condition = condition.to(device)
     
     solver_instance = ODEFlowSolver(
@@ -378,7 +417,7 @@ def compare_solvers(
     condition: Tensor,
     ground_truth: Optional[Tensor] = None,
     solvers: Optional[List[str]] = None,
-    device: str = 'cuda',
+    device: Optional[str] = None,
     n_steps: int = 50
 ) -> dict:
     """
@@ -389,7 +428,8 @@ def compare_solvers(
         condition: Conditioning tensor
         ground_truth: Optional ground truth for error computation
         solvers: List of solver names to compare. If None, uses default set
-        device: Device for computation
+        device: Device for computation.  Defaults to CUDA when available,
+            CPU otherwise.
         n_steps: Number of steps for fixed-step solvers
     
     Returns:
@@ -413,6 +453,7 @@ def compare_solvers(
     if solvers is None:
         solvers = ['euler', 'midpoint', 'rk4', 'dopri5']
     
+    device = resolve_device(device)
     model.eval()
     condition = condition.to(device)
     if ground_truth is not None:
@@ -430,7 +471,8 @@ def compare_solvers(
         )
         
         # Time the sampling
-        torch.cuda.synchronize() if device == 'cuda' else None
+        if device == 'cuda':
+            torch.cuda.synchronize()
         start_time = time.time()
         
         samples = ode_solver.sample(
@@ -438,7 +480,8 @@ def compare_solvers(
             n_steps=n_steps if solver_name in ODEFlowSolver.FIXED_STEP_SOLVERS else None
         )
         
-        torch.cuda.synchronize() if device == 'cuda' else None
+        if device == 'cuda':
+            torch.cuda.synchronize()
         elapsed = time.time() - start_time
         
         # Compute error if ground truth provided

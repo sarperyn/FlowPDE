@@ -7,10 +7,13 @@ from typing import Any, Callable, Dict, Iterable, Optional
 
 import torch
 from torch import nn, optim
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 from flowpde.trainers.ema import EMA
-from flowpde.utils import plot_curve, print_stats, save_model
+from flowpde.utils import plot_curve, print_stats, resolve_device, save_model
+
+# Backends whose autocast implementation is real rather than a silent no-op.
+_AMP_DEVICES = {"cuda", "cpu", "mps", "xpu"}
 
 
 class Trainer:
@@ -29,9 +32,12 @@ class Trainer:
             attribute.
         optimizer: Optimizer over the model parameters.
         scheduler: Optional LR scheduler, stepped once per epoch.
-        device: Device to train on.
+        device: Device to train on.  Defaults to CUDA when available and CPU
+            otherwise; pass `'mps'` explicitly to use it.
         gradient_clip: Max gradient norm, or `None` to disable.
-        use_amp: Enable automatic mixed precision.
+        use_amp: Enable automatic mixed precision, using the autocast
+            implementation for `device`.  Raises on a backend that has
+            none, rather than quietly training in full precision.
         ema_decay: Decay for an exponential moving average of the weights, or
             `None` to disable.  Validation and checkpointing then use the
             averaged weights, which is standard for this model family.
@@ -52,7 +58,7 @@ class Trainer:
         objective: nn.Module,
         optimizer: optim.Optimizer,
         scheduler: Optional[optim.lr_scheduler._LRScheduler] = None,
-        device: str = "cuda",
+        device: Optional[str] = None,
         gradient_clip: Optional[float] = None,
         use_amp: bool = False,
         ema_decay: Optional[float] = None,
@@ -65,6 +71,7 @@ class Trainer:
         if monitor_mode not in {"min", "max"}:
             raise ValueError("monitor_mode must be 'min' or 'max'")
 
+        device = resolve_device(device)
         self.objective = objective.to(device)
         self.model = objective.model
         self.optimizer = optimizer
@@ -72,7 +79,20 @@ class Trainer:
         self.device = device
         self.gradient_clip = gradient_clip
         self.use_amp = use_amp
-        self.scaler = GradScaler() if use_amp else None
+
+        # autocast and GradScaler are device-typed; using the CUDA-specific
+        # entry points meant use_amp=True trained in full precision anywhere
+        # else, and said nothing about it.
+        self._amp_device_type = torch.device(device).type
+        if use_amp and self._amp_device_type not in _AMP_DEVICES:
+            raise ValueError(
+                f"use_amp=True is not supported on device '{device}'. "
+                f"Automatic mixed precision is available for "
+                f"{sorted(_AMP_DEVICES)}."
+            )
+        self.scaler = (
+            GradScaler(self._amp_device_type, enabled=use_amp) if use_amp else None
+        )
 
         self.ema = (
             EMA(self.model, decay=ema_decay, device=torch.device(device))
@@ -85,6 +105,9 @@ class Trainer:
         self.monitor = monitor
         self.monitor_mode = monitor_mode
         self.checkpoint_extra = dict(checkpoint_extra or {})
+
+        # Set by train(); _save() is meaningless before then.
+        self.save_dir: Optional[str] = None
 
         self.best_loss = float("inf")
         self.best_metric = float("inf") if monitor_mode == "min" else -float("inf")
@@ -99,7 +122,7 @@ class Trainer:
         self.optimizer.zero_grad()
 
         if self.use_amp:
-            with autocast():
+            with autocast(device_type=self._amp_device_type):
                 loss = self.compute_loss(batch)
             self.scaler.scale(loss).backward()
             if self.gradient_clip is not None:
@@ -162,13 +185,29 @@ class Trainer:
 
     def _save(self, filename: str, epoch: int, epoch_loss: float) -> None:
         """Save a checkpoint, storing EMA weights as the primary model state."""
+        if self.save_dir is None:
+            raise RuntimeError(
+                "No save directory is set. Checkpoints are written from "
+                "train(), which takes save_dir; set trainer.save_dir first to "
+                "save outside it."
+            )
+
         extra = dict(self.checkpoint_extra)
         if self.ema is not None:
             extra["ema_state"] = self.ema.state_dict()
+            # 'model_state' below holds the averaged weights, so the live ones
+            # have to travel separately: they are what 'optimizer_state' was
+            # computed against, and without them a run can be redeployed but
+            # not resumed.
+            extra["raw_model_state"] = {
+                name: tensor.detach().cpu().clone()
+                for name, tensor in self.model.state_dict().items()
+            }
 
         with self._ema_context():
             # Under EMA the averaged weights are the deployable ones, so they
-            # go into 'model_state'; raw weights are kept for resuming.
+            # go into 'model_state'; the raw weights ride along in
+            # 'raw_model_state'.
             save_model(
                 save_dir=self.save_dir,
                 epoch=epoch,
@@ -179,6 +218,57 @@ class Trainer:
                 filename=filename,
                 extra=extra,
             )
+
+    def load_checkpoint(
+        self,
+        path: str,
+        map_location: Optional[Any] = None,
+        resume_training: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Restore a checkpoint written by `_save`.
+
+        Args:
+            path: Checkpoint file.
+            map_location: Forwarded to `torch.load`.  Defaults to this
+                trainer's device.
+            resume_training: Restore the raw weights, optimizer, scheduler and
+                EMA shadow so training continues where it stopped.  With
+                `False`, only the deployable averaged weights in
+                `'model_state'` are loaded, which is what inference wants.
+
+        Returns:
+            The loaded checkpoint dictionary.
+        """
+        checkpoint = torch.load(
+            path,
+            map_location=map_location if map_location is not None else self.device,
+            weights_only=False,
+        )
+
+        if not resume_training:
+            self.model.load_state_dict(checkpoint["model_state"])
+            return checkpoint
+
+        raw_state = checkpoint.get("raw_model_state")
+        if raw_state is None:
+            if "ema_state" in checkpoint:
+                raise KeyError(
+                    f"{path} was written by an older version that stored only "
+                    "the EMA weights, so the raw training weights needed to "
+                    "resume are not in the file. Load it with "
+                    "resume_training=False for inference, or restart training."
+                )
+            # No EMA was used, so 'model_state' is the raw state.
+            raw_state = checkpoint["model_state"]
+
+        self.model.load_state_dict(raw_state)
+        self.optimizer.load_state_dict(checkpoint["optimizer_state"])
+        if self.scheduler is not None and checkpoint.get("scheduler_state"):
+            self.scheduler.load_state_dict(checkpoint["scheduler_state"])
+        if self.ema is not None and checkpoint.get("ema_state"):
+            self.ema.load_state_dict(checkpoint["ema_state"])
+        return checkpoint
 
     # Main loop
 

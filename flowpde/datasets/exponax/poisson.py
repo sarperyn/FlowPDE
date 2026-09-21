@@ -105,7 +105,7 @@ class PoissonGenerator(ExponaxDatasetGenerator):
             'source': sources,
             'solution': solutions,
         })
-        self.apply_observation_augmentation(
+        augmentation = self.apply_observation_augmentation(
             data,
             observation_key='solution',
             problem=problem,
@@ -114,4 +114,9 @@ class PoissonGenerator(ExponaxDatasetGenerator):
         )
 
         self.print_summary("Poisson", n)
-        return self.wrap_dataset(data, problem=problem)
+        return self.wrap_dataset(
+            data,
+            problem=problem,
+            extra_stats=augmentation.pop("clean_stats", None),
+            extra_metadata=augmentation,
+        )

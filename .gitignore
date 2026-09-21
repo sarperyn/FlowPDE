@@ -18,6 +18,7 @@ __pycache__/
 /experiments/
 /configs/
 /configs/
+/presentation
 
 # MkDocs build output — the source in docs/ is what belongs in git
 /site

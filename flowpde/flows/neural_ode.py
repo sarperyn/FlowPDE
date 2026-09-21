@@ -198,9 +198,64 @@ class NeuralODEFlow(BaseFlow):
         self.use_adjoint = use_adjoint
         self.ode_rtol = ode_rtol
         self.ode_atol = ode_atol
-        
+
+        # The flattened target dimension, learned from the first training
+        # batch. It is a buffer so it travels in state_dict(): a flow restored
+        # from a checkpoint still knows what shape to sample, instead of
+        # silently falling back to the condition's dimension.
+        self.register_buffer("target_dim", torch.tensor(-1, dtype=torch.long))
+
         if trace_estimator not in ['exact', 'hutchinson']:
             raise ValueError(f"Unknown trace estimator: {trace_estimator}")
+
+    def set_target_dim(self, dim: int) -> None:
+        """Record the flattened target dimension (called by the objective)."""
+        self.target_dim.fill_(int(dim))
+
+    def _resolve_target_dim(
+        self,
+        target_shape: Optional[Union[int, Tuple[int, ...]]] = None,
+    ) -> int:
+        """Flattened size of the samples to draw."""
+        if target_shape is not None:
+            if isinstance(target_shape, int):
+                return target_shape
+            dim = 1
+            for size in target_shape:
+                dim *= size
+            return dim
+
+        dim = int(self.target_dim)
+        if dim > 0:
+            return dim
+
+        raise RuntimeError(
+            "This flow does not know its target dimension, so it cannot draw "
+            "x_0. It is recorded from the first training batch and saved in "
+            "the flow's state_dict, so a flow built fresh around loaded "
+            "backbone weights has never seen it. Pass x_init=... or "
+            "target_shape=... to sample()."
+        )
+
+    def _make_solver(self, method: Optional[str] = None, **solver_kwargs: Any):
+        """
+        Build the ODE solver used for sampling and transport.
+
+        Settings fall back to the ones this flow was constructed with, so
+        `ode_method`, `ode_rtol`, `ode_atol` and `use_adjoint` actually govern
+        integration instead of being overridden by a call-site default.
+        Unknown keyword arguments raise rather than being dropped.
+        """
+        from flowpde.solvers.ode_solvers import ODEFlowSolver
+
+        solver_kwargs.setdefault("rtol", self.ode_rtol)
+        solver_kwargs.setdefault("atol", self.ode_atol)
+        solver_kwargs.setdefault("adjoint", self.use_adjoint)
+        return ODEFlowSolver(
+            model=self.model,
+            method=method if method is not None else self.ode_method,
+            **solver_kwargs,
+        )
     
     def sample_base_distribution(
         self,
@@ -215,155 +270,125 @@ class NeuralODEFlow(BaseFlow):
         else:
             raise ValueError(f"Unknown base distribution: {self.base_distribution}")
     
-    def _integrate_ode(
+    def _integrate_logprob(
         self,
         x: Tensor,
         condition: Tensor,
-        t_span: Tuple[float, float] = (0.0, 1.0),
-        compute_logp: bool = False,
+        t_span: Tuple[float, float] = (1.0, 0.0),
         n_steps: Optional[int] = None,
         method: Optional[str] = None,
-        use_adjoint: Optional[bool] = None,
-    ) -> Tuple[Tensor, Optional[Tensor]]:
+    ) -> Tuple[Tensor, Tensor]:
         """
-        Integrate ODE with optional log probability tracking.
-        
+        Integrate the augmented (state, log-density) dynamics.
+
+        This is the one path that cannot go through `ODEFlowSolver`: the
+        augmented state carries log p alongside x, and the trace estimator
+        needs higher-order derivatives.  torchdiffeq's adjoint mode is a poor
+        fit for that graph, so direct autograd is always used here.
+
         Args:
-            x: Initial state
-            condition: Conditioning tensor
-            t_span: Time interval (t_start, t_end)
-            compute_logp: Whether to track log probability
-            n_steps: Number of steps (optional)
-        
+            x: Initial state.
+            condition: Conditioning tensor.
+            t_span: Time interval; (1, 0) maps data to the base distribution.
+            n_steps: Steps for fixed-step methods.
+            method: Solver name; defaults to the flow's `ode_method`.
+
         Returns:
-            Final state and change in log probability
+            Final state and the accumulated change in log density.
         """
         from torchdiffeq import odeint
-        
+
         batch_size = x.shape[0]
         device = x.device
-        
-        if compute_logp:
-            # Augment state with log probability
-            log_px = torch.zeros(batch_size, 1, device=device)
-            state = torch.cat([x, log_px], dim=1)
-            
-            # Create augmented vector field
-            vector_field = NeuralODELogProbVectorField(
-                self.model, condition,
-                trace_estimator=self.trace_estimator,
-                n_trace_samples=self.n_trace_samples
-            )
-        else:
-            state = x
-            # Regular vector field (no log probability)
-            from flowpde.solvers.ode_solvers import VelocityField
-            vector_field = VelocityField(self.model, condition)
-        
-        # Time points
+
+        log_px = torch.zeros(batch_size, 1, device=device)
+        state = torch.cat([x, log_px], dim=1)
+
+        vector_field = NeuralODELogProbVectorField(
+            self.model, condition,
+            trace_estimator=self.trace_estimator,
+            n_trace_samples=self.n_trace_samples,
+        )
+
         t_start, t_end = t_span
         t_eval = torch.tensor([t_start, t_end], device=device)
 
-        method = method or self.ode_method
-        n_steps = n_steps or self.ode_n_steps
-        use_adjoint = self.use_adjoint if use_adjoint is None else use_adjoint
+        method = method if method is not None else self.ode_method
+        n_steps = n_steps if n_steps is not None else self.ode_n_steps
 
-        # The CNF log-probability path needs higher-order derivatives through
-        # the trace estimator. torchdiffeq's adjoint mode trades memory for a
-        # custom backward solve, which is not a good fit for that graph, so keep
-        # direct autograd for likelihood training.
-        if compute_logp and use_adjoint:
-            use_adjoint = False
-
-        odeint_fn = odeint
-        if use_adjoint:
-            from torchdiffeq import odeint_adjoint
-
-            odeint_fn = odeint_adjoint
-
-        kwargs = {"method": method}
-        if method in {"euler", "midpoint", "rk4", "explicit_adams", "implicit_adams", "fixed_adams"}:
+        kwargs: Dict[str, Any] = {"method": method}
+        if method in {"euler", "midpoint", "rk4", "explicit_adams",
+                      "implicit_adams", "fixed_adams"}:
             if n_steps is None:
                 raise ValueError(
-                    f"n_steps must be set when using fixed-step ODE method '{method}'."
+                    f"n_steps must be set when using fixed-step ODE method "
+                    f"'{method}'."
                 )
             kwargs["options"] = {"step_size": abs(t_end - t_start) / int(n_steps)}
         else:
             kwargs["rtol"] = self.ode_rtol
             kwargs["atol"] = self.ode_atol
 
-        trajectory = odeint_fn(
-            vector_field,
-            state,
-            t_eval,
-            **kwargs,
-        )
-        
+        trajectory = odeint(vector_field, state, t_eval, **kwargs)
         final_state = trajectory[-1]
-        
-        if compute_logp:
-            x_final = final_state[:, :-1]
-            delta_logp = final_state[:, -1]
-            return x_final, delta_logp
-        else:
-            return final_state, None
-    
+        return final_state[:, :-1], final_state[:, -1]
+
     def sample(
         self,
         condition: Tensor,
-        n_steps: int = 50,
-        solver: str = 'dopri5',
+        n_steps: Optional[int] = None,
+        solver: Optional[str] = None,
         x_init: Optional[Tensor] = None,
         target_shape: Optional[Union[int, Tuple[int, ...]]] = None,
+        return_trajectory: bool = False,
+        no_grad: bool = True,
         **solver_kwargs: Any
-    ) -> Tensor:
+    ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
-        Sample from the learned distribution.
-        
+        Sample by integrating the learned velocity field from t=0 to t=1.
+
         Args:
-            condition: Conditioning tensor
-            n_steps: Number of integration steps (ignored for adaptive solvers)
-            solver: ODE solver name
-            x_init: Optional initial noise
-            target_shape: Shape of generated targets excluding batch. Required
-                before training when target and condition dimensions differ.
-            **solver_kwargs: Additional solver arguments
-        
+            condition: Conditioning tensor (B, *).
+            n_steps: Integration steps.  Defaults to the flow's
+                `ode_n_steps`; required for fixed-step solvers.
+            solver: ODE solver name.  Defaults to the flow's `ode_method`,
+                so the constructor's choice is what actually runs.
+            x_init: Optional initial noise.  When omitted, drawn from the
+                flow's base distribution.
+            target_shape: Shape of the samples excluding batch, or the
+                flattened dimension.  Only needed when the flow has not
+                recorded its target dimension and no `x_init` is given.
+            return_trajectory: Also return the full integration trajectory.
+            no_grad: Integrate under `torch.no_grad()` (default).
+            **solver_kwargs: Forwarded to `ODEFlowSolver`
+                (`rtol`, `atol`, `adjoint`, `method_options`).  Unknown names
+                raise rather than being silently dropped.
+
         Returns:
-            Generated samples
+            Samples (B, dim), or `(samples, trajectory)` when
+            `return_trajectory` is set.
         """
         condition = condition.flatten(start_dim=1).to(self.model_device)
         batch_size = condition.shape[0]
-        if x_init is not None:
-            dim = x_init.flatten(start_dim=1).shape[1]
-        elif target_shape is not None:
-            if isinstance(target_shape, int):
-                dim = target_shape
-            else:
-                dim = 1
-                for size in target_shape:
-                    dim *= size
-        else:
-            dim = getattr(self, "_target_dim", condition.shape[1])
-        
-        # Sample from base distribution
+
         if x_init is None:
-            x_0 = self.sample_base_distribution((batch_size, dim), self.model_device)
+            dim = self._resolve_target_dim(target_shape)
+            x_init = self.sample_base_distribution(
+                (batch_size, dim), self.model_device
+            )
         else:
-            x_0 = x_init.flatten(start_dim=1).to(self.model_device)
-        
-        # Integrate forward from t=0 to t=1
-        x_1, _ = self._integrate_ode(
-            x_0, condition,
+            x_init = x_init.flatten(start_dim=1).to(self.model_device)
+
+        ode_solver = self._make_solver(solver, **solver_kwargs)
+        return ode_solver.sample(
+            condition=condition,
+            x_init=x_init,
             t_span=(0.0, 1.0),
-            compute_logp=False,
-            n_steps=n_steps,
-            method=solver,
-            use_adjoint=solver_kwargs.pop("use_adjoint", None),
+            return_trajectory=return_trajectory,
+            n_steps=n_steps if n_steps is not None else self.ode_n_steps,
+            no_grad=no_grad,
         )
-        
-        return x_1
-    
+
     def log_prob(
         self,
         x: Tensor,
@@ -372,72 +397,84 @@ class NeuralODEFlow(BaseFlow):
     ) -> Tensor:
         """
         Compute log probability of data.
-        
+
         Args:
             x: Data samples
             condition: Conditioning tensor
-        
+
         Returns:
             Log probabilities (batch_size,)
         """
         x = x.flatten(start_dim=1).to(self.model_device)
         condition = condition.flatten(start_dim=1).to(self.model_device)
-        
-        # Transform to base distribution
-        x_0, delta_logp = self._integrate_ode(
+
+        # Transport data back to the base distribution, accumulating the
+        # change in log density along the way.
+        x_0, delta_logp = self._integrate_logprob(
             x, condition,
             t_span=(1.0, 0.0),
-            compute_logp=True,
             n_steps=kwargs.get("n_steps"),
             method=kwargs.get("solver") or kwargs.get("method"),
-            use_adjoint=kwargs.get("use_adjoint"),
         )
-        
-        # Compute base log probability
-        if self.base_distribution == 'gaussian':
-            log_p0 = -0.5 * (x_0 ** 2).sum(dim=1) - 0.5 * x_0.shape[1] * torch.log(
-                torch.tensor(2 * torch.pi, device=x_0.device)
-            )
-        else:
-            in_support = ((x_0 >= -1) & (x_0 <= 1)).all(dim=1).float()
-            log_p0 = torch.log(in_support / (2 ** x_0.shape[1]) + 1e-10)
-        
+
+        log_p0 = self.base_log_prob(x_0)
+
         # Log probability at data
         log_px = log_p0 - delta_logp
-        
+
         return log_px
-    
+
+    def base_log_prob(self, z: Tensor) -> Tensor:
+        """
+        Log density of the base distribution, matching
+        `sample_base_distribution` exactly.
+        """
+        if self.base_distribution == 'gaussian':
+            return -0.5 * (z ** 2).sum(dim=1) - 0.5 * z.shape[1] * torch.log(
+                torch.tensor(2 * torch.pi, device=z.device)
+            )
+        elif self.base_distribution == 'uniform':
+            # sample_base_distribution draws U(-1, 1)^d, so the density is
+            # 2^-d on that support.
+            in_support = ((z >= -1) & (z <= 1)).all(dim=1).float()
+            return torch.log(in_support / (2 ** z.shape[1]) + 1e-10)
+        else:
+            raise ValueError(f"Unknown base distribution: {self.base_distribution}")
+
     def forward_transform(
         self,
         x: Tensor,
         condition: Optional[Tensor] = None,
-        **kwargs: Any
+        n_steps: Optional[int] = None,
+        solver: Optional[str] = None,
+        no_grad: bool = True,
+        **solver_kwargs: Any
     ) -> Tensor:
         """
         Forward transformation: data -> latent (backward ODE).
-        
+
         Args:
             x: Data samples
             condition: Conditioning tensor
-        
+
         Returns:
             Latent samples in base distribution
         """
         if condition is None:
             raise ValueError("NeuralODEFlow requires conditioning")
-        
+
         x = x.flatten(start_dim=1).to(self.model_device)
         condition = condition.flatten(start_dim=1).to(self.model_device)
-        
-        # Integrate backward
-        z, _ = self._integrate_ode(
-            x, condition,
+
+        ode_solver = self._make_solver(solver, **solver_kwargs)
+        return ode_solver.sample(
+            condition=condition,
+            x_init=x,
             t_span=(1.0, 0.0),
-            compute_logp=False
+            n_steps=n_steps if n_steps is not None else self.ode_n_steps,
+            no_grad=no_grad,
         )
-        
-        return z
-    
+
     def inverse_transform(
         self,
         z: Tensor,
@@ -446,16 +483,18 @@ class NeuralODEFlow(BaseFlow):
     ) -> Tensor:
         """
         Inverse transformation: latent -> data (forward ODE).
-        
+
         Args:
             z: Latent samples from base distribution
             condition: Conditioning tensor
-        
+
         Returns:
             Data samples
         """
+        if condition is None:
+            raise ValueError("NeuralODEFlow requires conditioning")
         return self.sample(condition=condition, x_init=z, **kwargs)
-    
+
     def get_config(self) -> Dict:
         """Return configuration dictionary."""
         return {

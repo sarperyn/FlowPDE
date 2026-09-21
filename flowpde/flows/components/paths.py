@@ -6,7 +6,7 @@ and compute the corresponding target velocity fields.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import torch
 from torch import Tensor
@@ -102,47 +102,131 @@ class LinearPath(PathInterpolant):
 
 
 class OTConditionalPath(PathInterpolant):
-    """
-    Optimal Transport Conditional Flow path.
-    
-    Path: x_t = t * x_1 + (1 - t) * x_0 + σ * sqrt(t * (1-t)) * ε
-    Velocity: v_t = x_1 - x_0 (ignoring noise term derivative)
-    
-    This is the OT-CFM path from Tong et al. (2023).
-    When σ = 0, equivalent to LinearPath.
-    
-    Args:
-        sigma: Noise scale (default: 0.0)
-    """
-    
-    def __init__(self, sigma: float = 0.0):
-        self.sigma = sigma
-    
-    def interpolate(self, x_0: Tensor, x_1: Tensor, t: Tensor) -> Tensor:
-        """x_t = t * x_1 + (1 - t) * x_0 + σ * sqrt(t * (1-t)) * ε"""
-        t_expanded = self._expand_t(t, x_0.dim())
-        
-        x_t = t_expanded * x_1 + (1 - t_expanded) * x_0
-        
-        if self.sigma > 0:
-            noise = torch.randn_like(x_0)
-            noise_scale = self.sigma * torch.sqrt(t_expanded * (1 - t_expanded))
-            x_t = x_t + noise_scale * noise
-        
-        return x_t
-    
-    def velocity(self, x_0: Tensor, x_1: Tensor, t: Tensor) -> Tensor:
-        """
+    r"""
+    Optimal-transport conditional flow path (Tong et al., 2023).
+
+    Two noise schedules are available, and both regress the *exact* derivative
+    of the path the model is shown.
+
+    ``schedule='constant'`` (default) — the OT-CFM path of Tong et al.:
+
+        x_t = t * x_1 + (1 - t) * x_0 + sigma * eps
         v_t = x_1 - x_0
-        
-        Note: The noise term has a time-dependent coefficient, but
-        the marginal target velocity is still x_1 - x_0.
-        """
-        return x_1 - x_0
-    
+
+    The noise term does not depend on t, so the chord *is* the conditional
+    velocity.  This is what makes sigma > 0 usable: the regression target
+    stays bounded everywhere.
+
+    ``schedule='bridge'`` — a Brownian-bridge tube that pins both endpoints:
+
+        x_t = t * x_1 + (1 - t) * x_0 + sigma * sqrt(t(1-t)) * eps
+        v_t = x_1 - x_0 + sigma * (1 - 2t) / (2 * sqrt(t(1-t))) * eps
+
+    Here the tube width is time dependent, so the chord alone is *not* the
+    derivative: the second term is required, or the model regresses a target
+    that does not match its own input.  That term diverges as t approaches 0
+    or 1 (it is clamped, but stays large), which is why the constant schedule
+    is the default.
+
+    With sigma = 0 both schedules reduce exactly to `LinearPath`.
+
+    Args:
+        sigma: Noise scale (default: 0.0).
+        schedule: `'constant'` (default) or `'bridge'`.
+    """
+
+    _SCHEDULES = ("constant", "bridge")
+
+    # Floor on t(1-t) inside the bridge derivative, so the endpoints give a
+    # large-but-finite target instead of an infinity.
+    _BRIDGE_FLOOR = 1e-6
+
+    def __init__(self, sigma: float = 0.0, schedule: str = "constant"):
+        if schedule not in self._SCHEDULES:
+            raise ValueError(
+                f"Unknown schedule: '{schedule}'. "
+                f"Available: {list(self._SCHEDULES)}"
+            )
+        self.sigma = sigma
+        self.schedule = schedule
+
     def _expand_t(self, t: Tensor, ndim: int) -> Tensor:
         """Expand t for broadcasting."""
         return t.view(-1, *([1] * (ndim - 1)))
+
+    def _tube_width(self, t_expanded: Tensor) -> Union[float, Tensor]:
+        r"""$\sigma_t$, the width of the conditional tube at time t."""
+        if self.schedule == "constant":
+            return self.sigma
+        return self.sigma * torch.sqrt(
+            (t_expanded * (1 - t_expanded)).clamp(min=0.0)
+        )
+
+    def _tube_width_derivative(self, t_expanded: Tensor) -> Union[float, Tensor]:
+        r"""$d\sigma_t/dt$, the term the chord alone leaves out."""
+        if self.schedule == "constant":
+            return 0.0
+        denominator = 2 * torch.sqrt(
+            (t_expanded * (1 - t_expanded)).clamp(min=self._BRIDGE_FLOOR)
+        )
+        return self.sigma * (1 - 2 * t_expanded) / denominator
+
+    def interpolate(
+        self,
+        x_0: Tensor,
+        x_1: Tensor,
+        t: Tensor,
+        noise: Optional[Tensor] = None,
+    ) -> Tensor:
+        """x_t on the conditional path.
+
+        Args:
+            noise: The epsilon to use.  Pass the same one to `velocity()` so
+                the target is the derivative of *this* sample path; `__call__`
+                does that for you.
+        """
+        t_expanded = self._expand_t(t, x_0.dim())
+        x_t = t_expanded * x_1 + (1 - t_expanded) * x_0
+
+        if self.sigma > 0:
+            noise = torch.randn_like(x_0) if noise is None else noise
+            x_t = x_t + self._tube_width(t_expanded) * noise
+
+        return x_t
+
+    def velocity(
+        self,
+        x_0: Tensor,
+        x_1: Tensor,
+        t: Tensor,
+        noise: Optional[Tensor] = None,
+    ) -> Tensor:
+        """Exact derivative dx_t/dt of the path defined by `interpolate`."""
+        v_t = x_1 - x_0
+
+        if self.sigma > 0 and self.schedule != "constant":
+            t_expanded = self._expand_t(t, x_0.dim())
+            noise = torch.randn_like(x_0) if noise is None else noise
+            v_t = v_t + self._tube_width_derivative(t_expanded) * noise
+
+        return v_t
+
+    def __call__(
+        self,
+        x_0: Tensor,
+        x_1: Tensor,
+        t: Tensor,
+    ) -> Tuple[Tensor, Tensor]:
+        """Interpolated point and its target velocity, from a single epsilon.
+
+        Drawing epsilon twice would hand the model an input from one sample
+        path and the derivative of a different one.
+        """
+        noise = torch.randn_like(x_0) if self.sigma > 0 else None
+        return (
+            self.interpolate(x_0, x_1, t, noise=noise),
+            self.velocity(x_0, x_1, t, noise=noise),
+        )
 
 
 # =============================================================================

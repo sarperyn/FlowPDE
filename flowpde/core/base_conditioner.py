@@ -134,7 +134,8 @@ class FiLMConditioner(BaseConditioner):
     """
     Feature-wise Linear Modulation (FiLM) conditioning.
     
-    Generates scale and shift parameters from condition to modulate features.
+    Generates scale and shift parameters from condition to modulate
+    features as ``(1 + scale) * x + shift``.
     """
     
     def __init__(
@@ -180,7 +181,7 @@ class FiLMConditioner(BaseConditioner):
             condition: Conditioning information (batch_size, condition_dim)
             
         Returns:
-            Modulated features: scale * x + shift
+            Modulated features: (1 + scale) * x + shift
         """
         condition = self.preprocess_condition(condition)
         
@@ -200,8 +201,11 @@ class FiLMConditioner(BaseConditioner):
             scale = scale.unsqueeze(1)
             shift = shift.unsqueeze(1)
         
-        # Apply FiLM: scale * x + shift
-        return scale * x + shift
+        # Apply FiLM as (1 + scale), the standard formulation: the
+        # generator starts near zero, so the block starts as the identity
+        # and learns a modulation, instead of multiplying features by a
+        # random zero-mean gain before training has begun.
+        return (1 + scale) * x + shift
 
 
 class NullConditioner(BaseConditioner):

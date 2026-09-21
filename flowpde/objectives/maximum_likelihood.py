@@ -49,7 +49,7 @@ class MaximumLikelihoodObjective(nn.Module):
             condition_key=condition_key or self.condition_key,
         )
         target_dim = x.flatten(start_dim=1).shape[1]
-        self.flow._target_dim = target_dim
+        self.flow.set_target_dim(target_dim)
         log_px = self.flow.log_prob(x, condition)
         loss = -log_px.mean()
         if self.normalize_by_dim:

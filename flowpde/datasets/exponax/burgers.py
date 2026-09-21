@@ -177,7 +177,7 @@ class BurgersGenerator(ExponaxDatasetGenerator):
             'diffusivity': nus,
             'trajectory': trajectories,
         })
-        self.apply_observation_augmentation(
+        augmentation = self.apply_observation_augmentation(
             data,
             observation_key='final',
             problem=problem,
@@ -194,4 +194,9 @@ class BurgersGenerator(ExponaxDatasetGenerator):
                 f"{cfg.diffusivity_max:.0e})"
             ),
         )
-        return self.wrap_dataset(data, problem=problem)
+        return self.wrap_dataset(
+            data,
+            problem=problem,
+            extra_stats=augmentation.pop("clean_stats", None),
+            extra_metadata=augmentation,
+        )

@@ -79,26 +79,36 @@ class MiniBatchOTCoupling(Coupling):
     This can lead to more efficient training by creating shorter
     transport paths on average.
     
-    Note: Requires scipy for linear assignment. Falls back to
-    independent coupling if not available.
-    
+    Requires scipy for the linear assignment.  scipy is a hard dependency of
+    this package, so a missing install is an error rather than a reason to
+    quietly fall back to independent coupling -- that fallback would turn an
+    OT ablation into a duplicate of the baseline with nothing to show for it.
+
     Args:
         cost_fn: Cost function ('euclidean', 'cosine'). Default: 'euclidean'
     """
-    
+
     def __init__(self, cost_fn: str = 'euclidean'):
+        if cost_fn not in ('euclidean', 'cosine'):
+            raise ValueError(
+                f"Unknown cost function: {cost_fn}. "
+                "Choose from ['euclidean', 'cosine']."
+            )
         self.cost_fn = cost_fn
-        self._scipy_available = None
-    
-    def _check_scipy(self):
-        """Check if scipy is available."""
-        if self._scipy_available is None:
-            try:
-                from scipy.optimize import linear_sum_assignment
-                self._scipy_available = True
-            except ImportError:
-                self._scipy_available = False
-        return self._scipy_available
+
+    @staticmethod
+    def _linear_sum_assignment():
+        """Return scipy's solver, or explain why it is missing."""
+        try:
+            from scipy.optimize import linear_sum_assignment
+        except ImportError as error:
+            raise ImportError(
+                "MiniBatchOTCoupling needs scipy for the linear assignment. "
+                "Install it with `pip install scipy` (it is already a declared "
+                "dependency of flowpde)."
+            ) from error
+        return linear_sum_assignment
+
     
     def couple(
         self, 
@@ -110,12 +120,8 @@ class MiniBatchOTCoupling(Coupling):
         
         Finds permutation of x_0 that minimizes total transport cost.
         """
-        if not self._check_scipy():
-            # Fall back to independent coupling
-            return x_0, x_1
-        
-        from scipy.optimize import linear_sum_assignment
-        
+        linear_sum_assignment = self._linear_sum_assignment()
+
         batch_size = x_0.shape[0]
         
         # Flatten for distance computation
@@ -131,8 +137,6 @@ class MiniBatchOTCoupling(Coupling):
             x_0_norm = x_0_flat / (x_0_flat.norm(dim=1, keepdim=True) + 1e-8)
             x_1_norm = x_1_flat / (x_1_flat.norm(dim=1, keepdim=True) + 1e-8)
             cost = 1 - torch.mm(x_0_norm, x_1_norm.t())
-        else:
-            raise ValueError(f"Unknown cost function: {self.cost_fn}")
         
         # Solve linear assignment (on CPU)
         cost_np = cost.detach().cpu().numpy()

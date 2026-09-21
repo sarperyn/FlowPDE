@@ -64,11 +64,6 @@ from typing import Dict, List, Optional
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _spatial_dims(x: Tensor):
-    """Return the tuple of all non-batch, non-channel dimensions."""
-    return tuple(range(2, x.ndim))
-
-
 def _norm(x: Tensor, p: float = 2.0) -> Tensor:
     """Lp norm over (channels, *spatial), returning shape (batch,)."""
     dims = tuple(range(1, x.ndim))
@@ -165,7 +160,6 @@ def relative_max_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tenso
     Returns:
         Scalar tensor — mean relative max error over the batch.
     """
-    dims = tuple(range(1, pred.ndim))
     max_err    = (pred - target).abs().flatten(start_dim=1).max(dim=1).values
     target_std = target.flatten(start_dim=1).std(dim=1).clamp(min=eps)
     return (max_err / target_std).mean()

@@ -65,7 +65,9 @@ trainer.train(loader, epochs=100, print_stats_interval=10,
 
 # 4. Sample
 batch = next(iter(loader))
-samples = flow.sample(condition=batch["input"], n_steps=50)   # (B, D), flattened
+# solver/n_steps default to the flow's own ode_method/ode_n_steps;
+# n_steps only applies to fixed-step solvers.
+samples = flow.sample(condition=batch["input"], solver="euler", n_steps=50)  # (B, D), flattened
 ```
 
 See the [Quickstart](getting_started/quickstart.md) for the full version, including

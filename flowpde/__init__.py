@@ -24,9 +24,11 @@ Quick Start:
     >>> trainer.train(loader, epochs=100, print_stats_interval=10,
     ...               save_dir="results/poisson/", save_interval=25)
     >>>
-    >>> # Sample: returns a flattened (B, D) tensor
+    >>> # Sample: returns a flattened (B, D) tensor.  The solver and step
+    >>> # count default to the ones the flow was built with; n_steps only
+    >>> # applies to fixed-step solvers.
     >>> batch = next(iter(loader))
-    >>> samples = flow.sample(condition=batch["input"], n_steps=50)
+    >>> samples = flow.sample(condition=batch["input"], solver="euler", n_steps=50)
 
 Architecture:
     - flowpde.core: Base classes for flows, solvers, and conditioners
