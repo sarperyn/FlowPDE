@@ -161,3 +161,102 @@ def test_end_to_end_poisson_training_improves_sampled_error(poisson_splits, tmp_
     checkpoint = torch.load(tmp_path / "best_model.pt", weights_only=False)
     restored = FieldNormalizer.from_state_dict(checkpoint["normalizer_state"])
     assert restored.stats.keys() == normalizer.stats.keys()
+
+
+# Data-quality guards (see Phase 1 review)
+
+
+def test_darcy_records_and_enforces_cg_convergence():
+    """Generated solutions must actually solve the PDE.
+
+    The CG solver runs a fixed number of iterations with no convergence
+    check.  At the old default (500 steps on a 64x64 grid) the relative
+    residual is ~8e-4, and at the 'fast prototyping' setting of 100 steps it
+    is ~2e-1 -- silently wrong ground truth.  Generation now measures the
+    residual and refuses to hand back an under-converged dataset.
+    """
+    dataset = DarcyGenerator(num_points=16, num_samples=4).generate(
+        num_samples=4, seed=0
+    )
+    assert dataset.metadata["cg_residual_max"] < 1e-6
+
+    with pytest.raises(RuntimeError, match="did not converge"):
+        DarcyGenerator(num_points=32, num_samples=4, cg_steps=5).generate(
+            num_samples=4, seed=0
+        )
+
+    # Opting out is explicit, never the default.
+    relaxed = DarcyGenerator(
+        num_points=32, num_samples=4, cg_steps=5, cg_tolerance=None
+    ).generate(num_samples=4, seed=0)
+    assert relaxed.metadata["cg_residual_max"] > 1e-6
+
+
+def test_masked_observations_stay_zero_after_normalization():
+    """Normalization must not undo the observation mask.
+
+    Standardizing subtracts the field mean, which turns the 'not observed'
+    zeros into a nonzero constant and contradicts the obs_mask channel the
+    model is given alongside them.
+    """
+    generator = DarcyGenerator(num_points=16, num_samples=6, obs_mask_fraction=0.25)
+    dataset = generator.generate(
+        num_samples=6, seed=0, problem="inverse", inverse_mode="coefficient"
+    )
+    dataset.set_normalizer(FieldNormalizer.from_dataset(dataset))
+
+    mask = dataset.get_raw_data()["obs_mask"][0]
+    observation = dataset[0]["input"][0:1]
+
+    assert torch.all(observation[mask == 0] == 0)
+    assert torch.any(observation[mask == 1] != 0)
+
+
+def test_normalizer_statistics_describe_the_clean_field():
+    """Statistics must be fitted before masking, not after.
+
+    Masking deflates the std by roughly sqrt(obs_mask_fraction) and shifts the
+    mean, so a normalizer fitted on masked data puts clean data on a
+    different scale.
+    """
+    masked = DarcyGenerator(
+        num_points=16, num_samples=6, obs_mask_fraction=0.25
+    ).generate(num_samples=6, seed=0, problem="inverse", inverse_mode="coefficient")
+    clean = DarcyGenerator(num_points=16, num_samples=6).generate(
+        num_samples=6, seed=0, problem="forward"
+    )
+
+    assert masked.get_stats()["solution"] == pytest.approx(
+        clean.get_stats()["solution"]
+    )
+
+
+def test_input_fields_account_for_the_mask_channel():
+    """Field names must line up with channels, since denormalize splits on them.
+
+    The mask is appended to the input, so listing only the data field left
+    `denormalize_channels` splitting the wrong number of channels.
+    """
+    generator = DarcyGenerator(num_points=16, num_samples=4, obs_mask_fraction=0.3)
+    masked = generator.generate(
+        num_samples=4, seed=0, problem="inverse", inverse_mode="coefficient"
+    )
+    normalizer = FieldNormalizer.from_dataset(masked)
+    masked.set_normalizer(normalizer)
+
+    sample = masked[0]
+    assert len(masked.input_fields) == sample["input"].shape[0]
+    assert masked.input_fields[-1] == "obs_mask"
+
+    # The mask has no statistics, so it survives denormalization untouched.
+    restored = normalizer.denormalize_channels(
+        masked.input_fields, sample["input"].unsqueeze(0)
+    )
+    assert torch.equal(restored[0, -1:], sample["obs_mask"])
+
+    # Without a mask the listing is unchanged.
+    plain = DarcyGenerator(num_points=16, num_samples=4).generate(
+        num_samples=4, seed=0, problem="forward"
+    )
+    assert plain.input_fields == ["kappa", "source"]
+    assert len(plain.input_fields) == plain[0]["input"].shape[0]

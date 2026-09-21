@@ -53,21 +53,75 @@ def test_path_hits_endpoints(path):
     assert torch.allclose(path.interpolate(x_0, x_1, ones), x_1, atol=1e-6)
 
 
-def test_ot_path_with_sigma_adds_noise_vanishing_at_endpoints():
-    """OT-conditional noise is scaled by sqrt(t(1-t)), so endpoints stay exact."""
-    path = OTConditionalPath(sigma=0.5)
+@pytest.mark.parametrize("schedule", ["constant", "bridge"])
+def test_ot_path_velocity_is_exact_for_sigma_above_zero(schedule):
+    """The regression target must be the derivative of the shown sample path.
+
+    Both schedules are checked with the *same* epsilon passed to interpolate()
+    and velocity(): the constant schedule's target is the chord, the bridge
+    schedule's target needs the d(sigma_t)/dt term as well.  Dropping it makes
+    the model regress a biased velocity.
+    """
+    path = OTConditionalPath(sigma=0.5, schedule=schedule)
+    x_0 = torch.randn(16, 8, dtype=torch.float64)
+    x_1 = torch.randn(16, 8, dtype=torch.float64)
+    noise = torch.randn(16, 8, dtype=torch.float64)
+    t = torch.rand(16, 1, dtype=torch.float64) * 0.8 + 0.1
+    h = 1e-6
+
+    numerical = (
+        path.interpolate(x_0, x_1, t + h, noise=noise)
+        - path.interpolate(x_0, x_1, t - h, noise=noise)
+    ) / (2 * h)
+    analytic = path.velocity(x_0, x_1, t, noise=noise)
+
+    assert torch.allclose(numerical, analytic, atol=1e-5)
+
+
+@pytest.mark.parametrize("schedule", ["constant", "bridge"])
+def test_ot_path_call_shares_one_epsilon(schedule):
+    """__call__ must derive x_t and v_t from a single noise draw.
+
+    Two draws would hand the model an input from one sample path and the
+    derivative of a different one -- the bug this guards against.
+    """
+    path = OTConditionalPath(sigma=0.5, schedule=schedule)
+    x_0 = torch.randn(32, 6, dtype=torch.float64)
+    x_1 = torch.randn(32, 6, dtype=torch.float64)
+    t = torch.rand(32, 1, dtype=torch.float64) * 0.8 + 0.1
+
+    x_t, v_t = path(x_0, x_1, t)
+
+    # Recover the epsilon that produced x_t, then check v_t is built from it.
+    width = path._tube_width(t)
+    epsilon = (x_t - (t * x_1 + (1 - t) * x_0)) / width
+    expected = path.velocity(x_0, x_1, t, noise=epsilon)
+    assert torch.allclose(v_t, expected, atol=1e-8)
+
+
+def test_ot_bridge_schedule_pins_endpoints():
+    """The bridge tube closes at t=0 and t=1; the constant tube does not."""
     x_0 = torch.randn(64, 6)
     x_1 = torch.randn(64, 6)
+    zeros, ones = torch.zeros(64, 1), torch.ones(64, 1)
 
-    at_zero = path.interpolate(x_0, x_1, torch.zeros(64, 1))
-    at_one = path.interpolate(x_0, x_1, torch.ones(64, 1))
-    assert torch.allclose(at_zero, x_0, atol=1e-6)
-    assert torch.allclose(at_one, x_1, atol=1e-6)
+    bridge = OTConditionalPath(sigma=0.5, schedule="bridge")
+    assert torch.allclose(bridge.interpolate(x_0, x_1, zeros), x_0, atol=1e-6)
+    assert torch.allclose(bridge.interpolate(x_0, x_1, ones), x_1, atol=1e-6)
 
     # Mid-path it must differ from the noiseless interpolant.
-    mid = path.interpolate(x_0, x_1, torch.full((64, 1), 0.5))
-    noiseless = 0.5 * x_0 + 0.5 * x_1
-    assert not torch.allclose(mid, noiseless, atol=1e-3)
+    mid = bridge.interpolate(x_0, x_1, torch.full((64, 1), 0.5))
+    assert not torch.allclose(mid, 0.5 * x_0 + 0.5 * x_1, atol=1e-3)
+
+    # Tong et al.'s constant-width tube keeps noise at the endpoints, which is
+    # exactly what lets its velocity target stay bounded.
+    constant = OTConditionalPath(sigma=0.5, schedule="constant")
+    assert not torch.allclose(constant.interpolate(x_0, x_1, zeros), x_0, atol=1e-3)
+
+
+def test_ot_path_rejects_unknown_schedule():
+    with pytest.raises(ValueError, match="Unknown schedule"):
+        OTConditionalPath(sigma=0.1, schedule="not_a_schedule")
 
 
 def test_path_broadcasts_over_spatial_dims():

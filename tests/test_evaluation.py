@@ -166,3 +166,24 @@ def test_objective_without_sample_raises():
     loader = DataLoader(FixedDataset(), batch_size=8)
     with pytest.raises(AttributeError, match="no sample"):
         FlowEvaluator(NoSample(), loader)()
+
+
+@pytest.mark.parametrize("metrics", [["mse"], ["rel_l2"], ["rel_l2", "mae"]])
+def test_ensemble_reporting_works_for_any_metric_list(metrics):
+    """The ensemble branch used to assume 'rel_l2' was configured.
+
+    Every configured metric already scores the ensemble mean, so each one is
+    aliased as ``mean_<name>`` instead of hard-coding a single key.
+    """
+    objective = build(OracleVelocity())
+    loader = DataLoader(FixedDataset(n=8), batch_size=4)
+
+    evaluator = FlowEvaluator(
+        objective, loader, n_steps=3, solver="euler",
+        metrics=metrics, ensemble_size=3,
+    )
+    results = evaluator()
+
+    assert "sample_spread" in results
+    for name in metrics:
+        assert results[f"mean_{name}"] == pytest.approx(results[name])

@@ -198,3 +198,149 @@ def test_end_to_end_with_real_evaluator(setup, tmp_path):
 
     after = evaluator()["rel_l2"]
     assert after < before, f"sampled error should improve ({before:.4f} -> {after:.4f})"
+
+
+def test_checkpoint_keeps_raw_weights_for_resuming(setup, tmp_path):
+    """Under EMA, 'model_state' holds the averaged weights -- so the live ones
+    have to be saved separately or the run cannot be resumed at all.
+
+    'optimizer_state' contains moments accumulated against the raw trajectory;
+    pairing them with EMA weights on resume silently corrupts training.
+    """
+    _, loader, objective, optimizer = setup
+    trainer = Trainer(objective, optimizer, device="cpu", ema_decay=0.9)
+    trainer.train(
+        loader, epochs=3, print_stats_interval=100,
+        save_dir=str(tmp_path), save_interval=3,
+    )
+
+    live = {name: t.clone() for name, t in trainer.model.state_dict().items()}
+    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=False)
+
+    assert "raw_model_state" in checkpoint
+    for name, tensor in live.items():
+        assert torch.allclose(checkpoint["raw_model_state"][name], tensor)
+
+    # The deployable-weights contract that inference code relies on is kept.
+    shadow = checkpoint["ema_state"]["shadow"]
+    for name, tensor in shadow.items():
+        assert torch.allclose(checkpoint["model_state"][name], tensor)
+    assert not torch.allclose(
+        checkpoint["model_state"]["net.0.weight"], live["net.0.weight"]
+    )
+
+
+def test_load_checkpoint_resumes_exactly(setup, tmp_path):
+    """Resuming restores the raw weights, the optimizer and the EMA shadow."""
+    _, loader, objective, optimizer = setup
+    trainer = Trainer(objective, optimizer, device="cpu", ema_decay=0.9)
+    trainer.train(
+        loader, epochs=3, print_stats_interval=100,
+        save_dir=str(tmp_path), save_interval=3,
+    )
+    live = {name: t.clone() for name, t in trainer.model.state_dict().items()}
+
+    fresh_model = TinyVelocity()
+    fresh_flow = NeuralODEFlow(fresh_model, target_key="target", condition_key="input")
+    fresh_objective = FlowMatchingObjective(
+        fresh_flow, target_key="target", condition_key="input"
+    )
+    resumed = Trainer(
+        fresh_objective,
+        torch.optim.Adam(fresh_model.parameters(), lr=1e-3),
+        device="cpu",
+        ema_decay=0.9,
+    )
+    resumed.load_checkpoint(str(tmp_path / "latest_checkpoint.pt"))
+
+    for name, tensor in live.items():
+        assert torch.allclose(resumed.model.state_dict()[name], tensor)
+    for name, tensor in trainer.ema.shadow.items():
+        assert torch.allclose(resumed.ema.shadow[name], tensor)
+    assert resumed.ema.num_updates == trainer.ema.num_updates
+    assert (
+        resumed.optimizer.state_dict()["state"][0]["step"]
+        == optimizer.state_dict()["state"][0]["step"]
+    )
+
+
+def test_load_checkpoint_for_inference_gives_ema_weights(setup, tmp_path):
+    """resume_training=False loads the deployable averaged weights."""
+    _, loader, objective, optimizer = setup
+    trainer = Trainer(objective, optimizer, device="cpu", ema_decay=0.9)
+    trainer.train(
+        loader, epochs=3, print_stats_interval=100,
+        save_dir=str(tmp_path), save_interval=3,
+    )
+    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=False)
+
+    trainer.load_checkpoint(
+        str(tmp_path / "latest_checkpoint.pt"), resume_training=False
+    )
+    for name, tensor in checkpoint["model_state"].items():
+        assert torch.allclose(trainer.model.state_dict()[name], tensor)
+
+
+def test_load_checkpoint_rejects_legacy_ema_checkpoint(setup, tmp_path):
+    """An old checkpoint has no raw weights; say so instead of resuming wrong."""
+    _, loader, objective, optimizer = setup
+    trainer = Trainer(objective, optimizer, device="cpu", ema_decay=0.9)
+    trainer.train(
+        loader, epochs=2, print_stats_interval=100,
+        save_dir=str(tmp_path), save_interval=2,
+    )
+
+    path = tmp_path / "latest_checkpoint.pt"
+    legacy = torch.load(path, weights_only=False)
+    legacy.pop("raw_model_state")
+    torch.save(legacy, path)
+
+    with pytest.raises(KeyError, match="raw training weights"):
+        trainer.load_checkpoint(str(path))
+
+    # ...but it is still perfectly usable for inference.
+    trainer.load_checkpoint(str(path), resume_training=False)
+
+
+def test_device_default_does_not_assume_cuda(setup):
+    """A hard-coded 'cuda' default crashes every CPU-only machine."""
+    from flowpde.utils import resolve_device
+
+    _, _, objective, optimizer = setup
+    trainer = Trainer(objective, optimizer)
+
+    assert trainer.device == resolve_device()
+    assert trainer.device in {"cuda", "cpu"}
+    # An explicit choice is always honoured.
+    assert Trainer(objective, optimizer, device="cpu").device == "cpu"
+
+
+def test_amp_uses_the_trainers_own_device(setup):
+    """torch.cuda.amp made use_amp=True a silent no-op off CUDA."""
+    import warnings
+
+    _, loader, objective, optimizer = setup
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        trainer = Trainer(objective, optimizer, device="cpu", use_amp=True)
+    assert not [w for w in caught if issubclass(w.category, FutureWarning)]
+
+    assert trainer._amp_device_type == "cpu"
+    assert trainer.scaler.is_enabled()
+    # It must actually run a step, not just construct.
+    assert "loss" in trainer.step(next(iter(loader)))
+
+
+def test_amp_rejects_a_backend_without_autocast(setup):
+    _, _, objective, optimizer = setup
+    with pytest.raises(ValueError, match="use_amp=True is not supported"):
+        Trainer(objective, optimizer, device="meta", use_amp=True)
+
+
+def test_saving_without_a_directory_is_an_explicit_error(setup):
+    """save_dir is only set by train(); _save used to raise AttributeError."""
+    _, _, objective, optimizer = setup
+    trainer = Trainer(objective, optimizer, device="cpu")
+
+    with pytest.raises(RuntimeError, match="No save directory"):
+        trainer._save("best_model.pt", epoch=0, epoch_loss=0.0)
