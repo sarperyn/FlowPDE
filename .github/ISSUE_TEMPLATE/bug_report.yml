@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in FlowPDE does not work as documented
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: The smallest script that shows the problem.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback or output
+      render: text
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: |
+        Output of:
+        python -c "import flowpde, torch, sys; print(flowpde.__version__, torch.__version__, sys.version)"
+      render: text
+    validations:
+      required: true

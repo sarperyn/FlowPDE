@@ -19,7 +19,6 @@ from flowpde.models.unet import UNet
 from flowpde.objectives import FlowMatchingObjective, create_flow_matching
 from flowpde.solvers import ODEFlowSolver, compare_solvers, sample_with_ode_solver
 
-
 # Backbones
 
 

@@ -8,33 +8,30 @@ This module provides composable building blocks:
 - SourceDistribution: Where trajectories start (noise, or precomputed pairs)
 """
 
-from .paths import (
-    PathInterpolant,
-    LinearPath,
-    OTConditionalPath,
-    get_path,
-)
-
-from .time_samplers import (
-    TimeSampler,
-    UniformSampler,
-    LogitNormalSampler,
-    BetaSampler,
-    get_time_sampler,
-)
-
 from .couplings import (
     Coupling,
     IndependentCoupling,
     MiniBatchOTCoupling,
     get_coupling,
 )
-
+from .paths import (
+    LinearPath,
+    OTConditionalPath,
+    PathInterpolant,
+    get_path,
+)
 from .sources import (
-    SourceDistribution,
-    GaussianSource,
     BatchSource,
+    GaussianSource,
+    SourceDistribution,
     get_source,
+)
+from .time_samplers import (
+    BetaSampler,
+    LogitNormalSampler,
+    TimeSampler,
+    UniformSampler,
+    get_time_sampler,
 )
 
 __all__ = [

@@ -6,10 +6,10 @@ Utility helpers for Exponax-backed datasets, including JAX↔PyTorch
 conversions and normalization stats.
 """
 
+from typing import Any, Optional, Union
+
 import numpy as np
 import torch
-from typing import Any, Union, Optional
-
 
 DeviceType = Union[str, torch.device]
 

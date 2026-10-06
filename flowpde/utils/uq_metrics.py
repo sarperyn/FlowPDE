@@ -157,7 +157,7 @@ def reliability_curve(
         credible_interval_coverage(stacked, target, level).item() for level in levels
     ]
     calibration_error = sum(
-        abs(e - n) for e, n in zip(empirical, levels)
+        abs(e - n) for e, n in zip(empirical, levels, strict=True)
     ) / len(levels)
 
     return {

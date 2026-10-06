@@ -14,52 +14,48 @@ Components:
 
 """
 
-# Core flow classes
-from .neural_ode import NeuralODEFlow, NeuralODELogProbVectorField
-
 # Components for advanced customization
 from .components import (
-    # Paths
-    PathInterpolant,
+    BatchSource,
+    BetaSampler,
+    Coupling,
+    GaussianSource,
+    IndependentCoupling,
     LinearPath,
+    LogitNormalSampler,
+    MiniBatchOTCoupling,
     OTConditionalPath,
-    get_path,
-    # Time samplers
+    PathInterpolant,
+    SourceDistribution,
     TimeSampler,
     UniformSampler,
-    LogitNormalSampler,
-    BetaSampler,
-    get_time_sampler,
-    # Couplings
-    Coupling,
-    IndependentCoupling,
-    MiniBatchOTCoupling,
     get_coupling,
-    # Sources
-    SourceDistribution,
-    GaussianSource,
-    BatchSource,
+    get_path,
     get_source,
+    get_time_sampler,
 )
+
+# Core flow classes
+from .neural_ode import NeuralODEFlow, NeuralODELogProbVectorField
 
 __all__ = [
     # Main classes
     'NeuralODEFlow',
     'NeuralODELogProbVectorField',
-    
+
     # Path components
     'PathInterpolant',
     'LinearPath',
     'OTConditionalPath',
     'get_path',
-    
+
     # Time sampler components
     'TimeSampler',
     'UniformSampler',
     'LogitNormalSampler',
     'BetaSampler',
     'get_time_sampler',
-    
+
     # Coupling components
     'Coupling',
     'IndependentCoupling',

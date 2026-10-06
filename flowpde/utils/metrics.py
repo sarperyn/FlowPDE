@@ -54,11 +54,11 @@ results = em(pred, target)   # dict
 
 from __future__ import annotations
 
+from typing import Dict, List, Optional
+
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-from typing import Dict, List, Optional
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers

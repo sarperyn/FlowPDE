@@ -6,33 +6,39 @@ Unlike classification ResNets, this preserves spatial resolution
 (no global pooling) to output full velocity fields.
 """
 
-from typing import Any, Optional, List
+from typing import Any, List, Optional
 
-from torch import nn, Tensor
+from torch import Tensor, nn
+
+from flowpde.core.base_conditioner import (
+    BaseConditioner,
+    ConcatConditioner,
+    FiLMConditioner,
+    NullConditioner,
+)
+from flowpde.models.convnet import _input_channels_for_conditioner
 
 from .components import (
     TimeMLPEmbedding,
+    expand_time_embedding,
+    get_activation,
     get_conv_layer,
     get_norm_layer,
-    get_activation,
-    expand_time_embedding,
     init_weights,
 )
-from flowpde.core.base_conditioner import BaseConditioner, ConcatConditioner, FiLMConditioner, NullConditioner
-from flowpde.models.convnet import _input_channels_for_conditioner
 
 
 class BasicBlock(nn.Module):
     """
     Basic residual block with time conditioning.
-    
+
     Structure: Conv → Norm → Act → Conv → Norm → (+skip) → Act
-    
+
     This is the standard ResNet BasicBlock adapted for:
     1. Dimension-agnostic operation (1D/2D)
     2. Time conditioning via additive embedding
     3. Optional channel expansion for skip connection
-    
+
     Args:
         spatial_dim: Spatial dimensionality (1 or 2)
         in_channels: Number of input channels
@@ -47,7 +53,7 @@ class BasicBlock(nn.Module):
         film_hidden_dim: Hidden dimension for FiLM parameter generation
     """
     expansion = 1  # BasicBlock doesn't expand channels
-    
+
     def __init__(
         self,
         spatial_dim: int,
@@ -65,20 +71,20 @@ class BasicBlock(nn.Module):
         super().__init__()
         self.spatial_dim = spatial_dim
         padding = kernel_size // 2
-        
+
         Conv = get_conv_layer(spatial_dim)
-        
+
         # Main path
-        self.conv1 = Conv(in_channels, out_channels, kernel_size, 
+        self.conv1 = Conv(in_channels, out_channels, kernel_size,
                          stride=stride, padding=padding, bias=False)
         self.norm1 = get_norm_layer(norm_type, out_channels, spatial_dim)
         self.act1 = get_activation(activation)
-        
+
         self.conv2 = Conv(out_channels, out_channels, kernel_size,
                          stride=1, padding=padding, bias=False)
         self.norm2 = get_norm_layer(norm_type, out_channels, spatial_dim)
         self.act2 = get_activation(activation)
-        
+
         # Time embedding projection
         self.time_proj = nn.Linear(time_emb_dim, out_channels)
 
@@ -93,7 +99,7 @@ class BasicBlock(nn.Module):
             )
         else:
             self.film = None
-        
+
         # Skip connection (identity or projection)
         if stride != 1 or in_channels != out_channels:
             self.skip = nn.Sequential(
@@ -102,7 +108,7 @@ class BasicBlock(nn.Module):
             )
         else:
             self.skip = nn.Identity()
-    
+
     def forward(self, x: Tensor, t_emb: Tensor, condition: Optional[Tensor] = None) -> Tensor:
         """
         Args:
@@ -114,30 +120,30 @@ class BasicBlock(nn.Module):
             raise ValueError("condition must be provided when use_film is True")
 
         identity = self.skip(x)
-        
+
         out = self.conv1(x)
         out = self.norm1(out)
         out = self.act1(out)
-        
+
         # Add time conditioning
         out = out + expand_time_embedding(self.time_proj(t_emb), self.spatial_dim)
 
         if self.film is not None:
             out = self.film(out, condition)
-        
+
         out = self.conv2(out)
         out = self.norm2(out)
-        
+
         out = out + identity
         out = self.act2(out)
-        
+
         return out
 
 
 class ResNetStage(nn.Module):
     """
     A stage (group of blocks) in ResNet.
-    
+
     Args:
         spatial_dim: Spatial dimensionality (1 or 2)
         in_channels: Input channels to stage
@@ -166,9 +172,9 @@ class ResNetStage(nn.Module):
         film_hidden_dim: Optional[int] = None,
     ):
         super().__init__()
-        
+
         blocks = []
-        
+
         # First block may change channels and/or downsample
         blocks.append(BasicBlock(
             spatial_dim=spatial_dim,
@@ -182,7 +188,7 @@ class ResNetStage(nn.Module):
             film_condition_dim=film_condition_dim,
             film_hidden_dim=film_hidden_dim,
         ))
-        
+
         # Remaining blocks maintain channels
         for _ in range(1, num_blocks):
             blocks.append(BasicBlock(
@@ -197,9 +203,9 @@ class ResNetStage(nn.Module):
                 film_condition_dim=film_condition_dim,
                 film_hidden_dim=film_hidden_dim,
             ))
-        
+
         self.blocks = nn.ModuleList(blocks)
-    
+
     def forward(self, x: Tensor, t_emb: Tensor, condition: Optional[Tensor] = None) -> Tensor:
         for block in self.blocks:
             x = block(x, t_emb, condition)
@@ -209,19 +215,19 @@ class ResNetStage(nn.Module):
 class ResNet(nn.Module):
     """
     ResNet architecture for flow matching on PDE data.
-    
+
     This is a fully convolutional ResNet designed for PDE solving:
     - No global average pooling (preserves spatial structure)
     - No classification head (outputs full velocity field)
     - Time conditioning at every residual block
     - Configurable depth and width
-    
+
     Architecture:
         Stem → [Stage1 → Stage2 → ... → StageN] → Output Conv
-    
+
     For PDE solving, we typically don't downsample (stride=1 everywhere)
     to preserve spatial resolution for the velocity field output.
-    
+
     Args:
         spatial_dim: Spatial dimensionality (1 or 2)
         spatial_size: Size of spatial domain
@@ -234,7 +240,7 @@ class ResNet(nn.Module):
         activation: Activation function name ('swish', 'relu', 'gelu')
         downsample: Whether to downsample between stages (default: False for PDEs)
         return_spatial: If True, return spatial tensor; if False, flatten
-    
+
     Example configurations:
         ResNet-8:  blocks_per_stage=[1, 1, 1, 1] with base_channels=32
         ResNet-14: blocks_per_stage=[2, 2, 2] with base_channels=64
@@ -300,11 +306,11 @@ class ResNet(nn.Module):
             get_norm_layer(norm_type, base_channels, spatial_dim),
             get_activation(activation),
         )
-        
+
         # Build stages
         self.stages = nn.ModuleList()
         current_channels = base_channels
-        
+
         for i, num_blocks in enumerate(blocks_per_stage):
             # Determine output channels for this stage
             if downsample and i > 0:
@@ -313,7 +319,7 @@ class ResNet(nn.Module):
             else:
                 out_channels = current_channels
                 stride = 1
-            
+
             self.stages.append(ResNetStage(
                 spatial_dim=spatial_dim,
                 in_channels=current_channels,
@@ -327,33 +333,33 @@ class ResNet(nn.Module):
                 film_condition_dim=film_condition_dim,
                 film_hidden_dim=film_hidden_dim,
             ))
-            
+
             current_channels = out_channels
-        
+
         # Output projection
         self.output_norm = get_norm_layer(norm_type, current_channels, spatial_dim)
         self.output_act = get_activation(activation)
-        
+
         # If downsampled, need to upsample back
         if downsample:
             # Build upsampling path
             self.upsample = self._build_upsample_path(
-                current_channels, solution_channels, 
+                current_channels, solution_channels,
                 blocks_per_stage, base_channels, spatial_dim
             )
             self.output_conv = None
         else:
             self.upsample = None
             self.output_conv = Conv(current_channels, solution_channels, 3, padding=1)
-        
+
         # Initialize weights (zero-init the velocity head, whichever path
         # produced it -- the upsampling branch ends in a conv too)
         final_layer = self.output_conv if self.upsample is None else self.upsample[-1]
         init_weights(self, zero_init_last=True, final_modules=[final_layer])
-    
+
     def _build_upsample_path(
-        self, 
-        in_channels: int, 
+        self,
+        in_channels: int,
         out_channels: int,
         blocks_per_stage: List[int],
         base_channels: int,
@@ -361,15 +367,15 @@ class ResNet(nn.Module):
     ) -> nn.Sequential:
         """Build upsampling path to restore original resolution."""
         from .components import get_conv_transpose_layer
-        
+
         ConvT = get_conv_transpose_layer(spatial_dim)
         Conv = get_conv_layer(spatial_dim)
-        
+
         layers = []
         current_ch = in_channels
-        
+
         # Upsample for each downsampling stage (except first)
-        for i in range(len(blocks_per_stage) - 1):
+        for _ in range(len(blocks_per_stage) - 1):
             next_ch = max(current_ch // 2, base_channels)
             layers.extend([
                 ConvT(current_ch, next_ch, kernel_size=2, stride=2),
@@ -377,12 +383,12 @@ class ResNet(nn.Module):
                 get_activation("swish"),
             ])
             current_ch = next_ch
-        
+
         # Final projection
         layers.append(Conv(current_ch, out_channels, 3, padding=1))
-        
+
         return nn.Sequential(*layers)
-    
+
     def _reshape_input(self, tensor: Tensor, channels: int) -> Tensor:
         """Reshape flattened input to spatial format."""
         if tensor.dim() == 2:
@@ -392,17 +398,17 @@ class ResNet(nn.Module):
             else:
                 return tensor.view(B, channels, self.spatial_size, self.spatial_size)
         return tensor
-    
+
     def forward(self, x: Tensor, f: Optional[Tensor], t: Tensor) -> Tensor:
         """
         Predict velocity field for flow matching.
-        
+
         Args:
             x: State x_t, shape (B, C, *spatial) or flattened (B, C*spatial)
             f: Condition, shape (B, C', *spatial) or flattened (B, C'*spatial).
                 Optional when using NullConditioner.
             t: Time t ∈ [0, 1], shape (B,) or (B, 1)
-        
+
         Returns:
             Velocity field v(x, f, t)
         """
@@ -417,12 +423,12 @@ class ResNet(nn.Module):
             if f is None:
                 raise ValueError("f must be provided when conditioner is not NullConditioner")
             f = self._reshape_input(f, self.condition_channels)
-        
+
         B = x.shape[0]
-        
+
         # Time embedding
         t_emb = self.time_embed(t)
-        
+
         # Apply conditioner (concat by default)
         if self.use_film:
             h = x
@@ -431,26 +437,26 @@ class ResNet(nn.Module):
 
         # Stem
         h = self.stem(h)
-        
+
         # Apply stages
         for stage in self.stages:
             h = stage(h, t_emb, f)
-        
+
         # Output projection
         h = self.output_norm(h)
         h = self.output_act(h)
-        
+
         if self.upsample is not None:
             out = self.upsample(h)
         else:
             out = self.output_conv(h)
-        
+
         # Return format
         if self.return_spatial:
             return out
         else:
             return out.view(B, -1)
-    
+
     def extra_repr(self) -> str:
         return (
             f"spatial_dim={self.spatial_dim}, spatial_size={self.spatial_size}, "

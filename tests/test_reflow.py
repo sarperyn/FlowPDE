@@ -15,7 +15,6 @@ from flowpde.models.mlp import MLP
 from flowpde.objectives import FlowMatchingObjective
 from flowpde.trainers import ReflowDataset, generate_reflow_pairs, reflow
 
-
 # Source distributions
 
 

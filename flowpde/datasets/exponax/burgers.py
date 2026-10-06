@@ -31,10 +31,10 @@ dataset = generator.generate(num_samples=500, seed=0)
 """
 
 from dataclasses import dataclass
-from typing import Optional, Literal
+from typing import Literal, Optional
 
-import jax
 import exponax as ex
+import jax
 
 from .base import GenerationConfig, PDEDataset
 from .generator import (

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional
 
@@ -12,6 +13,8 @@ import torch
 
 from .base import GenerationConfig, PDEDataset
 from .utilities import compute_normalization_stats, jax_to_torch
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -203,7 +206,7 @@ class ExponaxDatasetGenerator:
         cfg = self.config
         spatial = "x".join([str(cfg.num_points)] * cfg.num_spatial_dims)
         suffix = f", {details}" if details else ""
-        print(
-            f"Generated {name} {cfg.num_spatial_dims}D dataset: "
-            f"{n} samples, {spatial} grid{suffix}"
+        logger.info(
+            "Generated %s %dD dataset: %d samples, %s grid%s",
+            name, cfg.num_spatial_dims, n, spatial, suffix,
         )

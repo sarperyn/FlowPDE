@@ -16,7 +16,6 @@ from flowpde.flows.components import (
     get_time_sampler,
 )
 
-
 # Paths
 
 

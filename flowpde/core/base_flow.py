@@ -5,25 +5,26 @@ Defines the interface for all normalizing flow types in FlowPDE.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
+
 import torch
-from torch import nn, Tensor
+from torch import Tensor, nn
 
 
 class BaseFlow(ABC, nn.Module):
     """
     Abstract base class for all normalizing flows.
-    
+
     This defines the common interface for invertible flow objects. Training
     objectives such as flow matching or maximum likelihood live outside the
     flow.
-    
+
     Key Concepts:
     - Forward: Map from data distribution to base distribution (e.g., training)
     - Inverse: Map from base distribution to data distribution (e.g., sampling)
     - Log probability computation for density estimation
     """
-    
+
     def __init__(
         self,
         model: nn.Module,
@@ -34,7 +35,7 @@ class BaseFlow(ABC, nn.Module):
     ):
         """
         Initialize base flow.
-        
+
         Args:
             model: Neural network that parameterizes the flow
             base_distribution: Type of base distribution ('gaussian', 'uniform', etc.)
@@ -48,7 +49,7 @@ class BaseFlow(ABC, nn.Module):
         self.target_key = target_key
         self.condition_key = condition_key
         self._extra_kwargs = kwargs
-    
+
     @property
     def model_device(self) -> torch.device:
         """Get the device of the model parameters."""
@@ -76,7 +77,7 @@ class BaseFlow(ABC, nn.Module):
         target = batch[target_key].flatten(start_dim=1).to(self.model_device)
         condition = batch[condition_key].flatten(start_dim=1).to(self.model_device)
         return target, condition
-    
+
     @abstractmethod
     def forward_transform(
         self,
@@ -86,20 +87,20 @@ class BaseFlow(ABC, nn.Module):
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
         Transform from data space to latent space (forward direction).
-        
+
         This is typically used during training to map data to the base distribution.
-        
+
         Args:
             x: Input tensor from data distribution (batch_size, dim)
             condition: Optional conditioning information (batch_size, cond_dim)
             **kwargs: Additional arguments
-            
+
         Returns:
             z: Transformed tensor in latent space
             log_det (optional): Log determinant of Jacobian for probability computation
         """
         raise NotImplementedError
-    
+
     @abstractmethod
     def inverse_transform(
         self,
@@ -109,20 +110,20 @@ class BaseFlow(ABC, nn.Module):
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
         Transform from latent space to data space (inverse/sampling direction).
-        
+
         This is typically used during inference to generate samples.
-        
+
         Args:
             z: Input tensor from base distribution (batch_size, dim)
             condition: Optional conditioning information (batch_size, cond_dim)
             **kwargs: Additional arguments
-            
+
         Returns:
             x: Transformed tensor in data space
             log_det (optional): Log determinant of Jacobian for probability computation
         """
         raise NotImplementedError
-    
+
     @abstractmethod
     def sample(
         self,
@@ -177,7 +178,7 @@ class BaseFlow(ABC, nn.Module):
             'base_distribution': self.base_distribution,
             **self._extra_kwargs
         }
-    
+
     def extra_repr(self) -> str:
         """Extra information for repr."""
         return f"base_distribution={self.base_distribution}"

@@ -1,5 +1,6 @@
 """Generic trainer for FlowPDE objectives."""
 
+import logging
 import os
 import time
 from contextlib import nullcontext
@@ -14,6 +15,8 @@ from flowpde.utils import plot_curve, print_stats, resolve_device, save_model
 
 # Backends whose autocast implementation is real rather than a silent no-op.
 _AMP_DEVICES = {"cuda", "cpu", "mps", "xpu"}
+
+logger = logging.getLogger(__name__)
 
 
 class Trainer:
@@ -50,7 +53,9 @@ class Trainer:
             improvement for `monitor`.
         checkpoint_extra: Extra entries stored in every checkpoint, e.g.
             `{'normalizer_state': normalizer.state_dict()}` so inference can
-            reproduce the training-time preprocessing.
+            reproduce the training-time preprocessing.  Keep them to tensors,
+            numbers, strings and containers of those so the checkpoint loads
+            with `torch.load(..., weights_only=True)`.
     """
 
     def __init__(
@@ -224,6 +229,7 @@ class Trainer:
         path: str,
         map_location: Optional[Any] = None,
         resume_training: bool = True,
+        weights_only: bool = True,
     ) -> Dict[str, Any]:
         """
         Restore a checkpoint written by `_save`.
@@ -236,6 +242,11 @@ class Trainer:
                 EMA shadow so training continues where it stopped.  With
                 `False`, only the deployable averaged weights in
                 `'model_state'` are loaded, which is what inference wants.
+            weights_only: Forwarded to `torch.load`.  The default refuses to
+                unpickle arbitrary objects, which is what makes loading a
+                checkpoint from an untrusted source safe.  Checkpoints written
+                by `Trainer` load this way; pass `False` only for a file you
+                trust that stores custom objects in `checkpoint_extra`.
 
         Returns:
             The loaded checkpoint dictionary.
@@ -243,7 +254,7 @@ class Trainer:
         checkpoint = torch.load(
             path,
             map_location=map_location if map_location is not None else self.device,
-            weights_only=False,
+            weights_only=weights_only,
         )
 
         if not resume_training:
@@ -346,7 +357,7 @@ class Trainer:
                 save_path=os.path.join(save_dir, "validation_curve.png"),
             )
 
-        print(f"\nBest train loss: {self.best_loss:.6f}")
+        logger.info("\nBest train loss: %.6f", self.best_loss)
         if self.validator is not None:
-            print(f"Best val {self.monitor}: {self.best_metric:.6f}")
-        print(f"Best model saved to: {os.path.join(save_dir, 'best_model.pt')}")
+            logger.info("Best val %s: %.6f", self.monitor, self.best_metric)
+        logger.info("Best model saved to: %s", os.path.join(save_dir, "best_model.pt"))

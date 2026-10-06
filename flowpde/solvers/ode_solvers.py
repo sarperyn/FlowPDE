@@ -14,10 +14,10 @@ Refactored to inherit from flowpde.core.base_solver.ODESolver
 """
 
 from contextlib import nullcontext
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from torch import nn, Tensor
-from typing import Optional, Tuple, Union, List, Callable, Dict, Any
+from torch import Tensor, nn
 from torchdiffeq import odeint, odeint_adjoint
 
 from flowpde.core.base_solver import ODESolver
@@ -27,12 +27,12 @@ from flowpde.utils.utils import resolve_device
 class VelocityField(nn.Module):
     """
     Wraps a flow matching model as an ODE velocity field.
-    
+
     The flow matching model predicts $v(x_t, \text{condition}, t)$, which is the
     time derivative $dx/dt$ at time $t$. This wrapper makes it compatible
     with torchdiffeq's interface.
     """
-    
+
     def __init__(self, model: nn.Module, condition: Tensor):
         """
         Args:
@@ -42,22 +42,22 @@ class VelocityField(nn.Module):
         super().__init__()
         self.model = model
         self.condition = condition
-        
+
     def forward(self, t: Tensor, x: Tensor) -> Tensor:
         """
         Compute velocity field at time $t$.
-        
+
         Args:
             t: Current time (scalar tensor)
             x: Current state (batch_size, dim)
-            
+
         Returns:
             Velocity $dx/dt$ at time $t$
         """
         # torchdiffeq passes scalar t, but model expects (batch_size, 1)
         batch_size = x.shape[0]
         t_batch = t.expand(batch_size, 1)
-        
+
         # Compute velocity. The caller owns the grad context: sample()
         # sets it, and training needs the graph kept.
         return self.model(x, self.condition, t_batch)
@@ -66,17 +66,17 @@ class VelocityField(nn.Module):
 class ODEFlowSolver(ODESolver):
     """
     ODE solver for flow matching inference using torchdiffeq.
-    
+
     This class provides a high-level interface for sampling from flow
     matching models using various ODE solvers from torchdiffeq.
-    
+
     Inherits from flowpde.core.base_solver.ODESolver
     """
-    
+
     # Available solvers and their properties
     ADAPTIVE_SOLVERS = ['dopri5', 'dopri8', 'bosh3', 'adaptive_heun', 'tsit5']
     FIXED_STEP_SOLVERS = ['euler', 'midpoint', 'rk4', 'explicit_adams', 'implicit_adams']
-    
+
     def __init__(
         self,
         model: nn.Module,
@@ -88,7 +88,7 @@ class ODEFlowSolver(ODESolver):
     ):
         """
         Initialize ODE solver.
-        
+
         Args:
             model: Flow matching model with signature model(x, condition, t)
             method: ODE solver method. Options:
@@ -111,30 +111,30 @@ class ODEFlowSolver(ODESolver):
             atol=atol,
             method_options=method_options
         )
-        
+
         self.model = model
         self.adjoint = adjoint
-        
+
         # Select integration function
         self.odeint_fn = odeint_adjoint if adjoint else odeint
-        
+
         # Validate method
         all_methods = self.ADAPTIVE_SOLVERS + self.FIXED_STEP_SOLVERS
         if method not in all_methods:
             raise ValueError(
                 f"Unknown method '{method}'. Available: {all_methods}"
             )
-    
+
     @property
     def is_adaptive(self) -> bool:
         """Whether this is an adaptive step-size solver."""
         return self.method in self.ADAPTIVE_SOLVERS
-    
+
     @property
     def supports_adjoint(self) -> bool:
         """Whether this solver supports adjoint method for backprop."""
         return True
-    
+
     def solve(
         self,
         func: Callable[[Tensor, Tensor], Tensor],
@@ -144,25 +144,25 @@ class ODEFlowSolver(ODESolver):
     ) -> Tensor:
         """
         Solve the ODE $dy/dt = f(t, y)$.
-        
+
         Args:
             func: Function computing $dy/dt$ given $(t, y)$
             y0: Initial state (batch_size, dim)
             t_span: Time interval $(t_{\text{start}}, t_{\text{end}})$
             **kwargs: Additional solving parameters
-            
+
         Returns:
             y_final: Final state at t_end (batch_size, dim)
         """
         device = y0.device
         t_eval = torch.tensor(list(t_span), device=device)
-        
+
         # Build options. 'dtype' is an adaptive-solver option; fixed-step
         # solvers reject it with a warning on every call.
         options = {} if self.method in self.FIXED_STEP_SOLVERS else {'dtype': torch.float32}
         options.update(self.method_options)
         options.update(kwargs)
-        
+
         # Solve
         trajectory = self.odeint_fn(
             func,
@@ -173,9 +173,9 @@ class ODEFlowSolver(ODESolver):
             atol=self.atol,
             options=options
         )
-        
+
         return trajectory[-1]  # Return final state
-    
+
     def solve_trajectory(
         self,
         func: Callable[[Tensor, Tensor], Tensor],
@@ -185,13 +185,13 @@ class ODEFlowSolver(ODESolver):
     ) -> Tensor:
         """
         Solve and return trajectory at specified time points.
-        
+
         Args:
             func: Function computing dy/dt
             y0: Initial state (batch_size, dim)
             t_eval: Time points for evaluation (n_steps,)
             **kwargs: Additional parameters
-            
+
         Returns:
             trajectory: States at each time point (n_steps, batch_size, dim)
         """
@@ -207,10 +207,10 @@ class ODEFlowSolver(ODESolver):
             options['step_size'] = abs(dt.item())
         else:
             options = {'dtype': torch.float32}
-        
+
         options.update(self.method_options)
         options.update(kwargs)
-        
+
         # Solve
         trajectory = self.odeint_fn(
             func,
@@ -221,9 +221,9 @@ class ODEFlowSolver(ODESolver):
             atol=self.atol,
             options=options
         )
-        
+
         return trajectory
-    
+
     def sample(
         self,
         condition: Tensor,
@@ -235,7 +235,7 @@ class ODEFlowSolver(ODESolver):
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
         Sample from flow matching model by solving ODE.
-        
+
         Args:
             condition: Conditioning tensor (batch_size, dim) or (batch_size, H, W)
             x_init: Initial noise (batch_size, dim). If None, sample from N(0, I)
@@ -281,11 +281,11 @@ class ODEFlowSolver(ODESolver):
         condition_original_shape = condition.shape
         if condition.dim() > 2:
             condition = condition.flatten(start_dim=1)
-        
+
         condition = condition.float()
         batch_size = condition.shape[0]
         device = condition.device
-        
+
         # Initialize from noise and store its shape
         if x_init is None:
             # Default: same spatial shape as condition but need to infer solution channels
@@ -301,13 +301,13 @@ class ODEFlowSolver(ODESolver):
                 x_init_original_shape = condition_original_shape
         else:
             x_init_original_shape = x_init.shape
-        
+
         # Flatten x_init for ODE integration
         if x_init.dim() > 2:
             x_init = x_init.flatten(start_dim=1).float()
         else:
             x_init = x_init.float()
-        
+
         # Create time span
         t_start, t_end = t_span
         if self.method in self.FIXED_STEP_SOLVERS and n_steps is None and not return_trajectory:
@@ -324,31 +324,31 @@ class ODEFlowSolver(ODESolver):
         else:
             # For adaptive solvers, just specify endpoints
             t_eval = torch.tensor([t_start, t_end], device=device)
-        
+
         # Create velocity field
         velocity_field = VelocityField(self.model, condition)
-        
+
         # Solve ODE
         trajectory = self.solve_trajectory(
             velocity_field,
             x_init,
             t_eval
         )
-        
+
         # trajectory shape: (n_steps+1, batch_size, dim) or (2, batch_size, dim)
         samples = trajectory[-1]  # Final state
-        
+
         # Reshape to original solution shape (not condition shape!)
         if len(x_init_original_shape) > 2:
             samples = samples.view(x_init_original_shape)
             if return_trajectory:
                 trajectory = trajectory.view(-1, *x_init_original_shape)
-        
+
         if return_trajectory:
             return samples, trajectory
-        
+
         return samples
-    
+
     def get_solver_info(self) -> Dict[str, Any]:
         """Get information about current solver configuration."""
         info = super().get_solver_info()
@@ -369,9 +369,9 @@ def sample_with_ode_solver(
 ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
     """
     Convenience function for sampling with ODE solver.
-    
+
     This is a simpler interface to ODEFlowSolver for one-off sampling.
-    
+
     Args:
         model: Flow matching model
         condition: Conditioning tensor
@@ -382,11 +382,11 @@ def sample_with_ode_solver(
         device: Device for computation.  Defaults to CUDA when available,
             CPU otherwise.
         return_trajectory: If True, return full trajectory
-    
+
     Returns:
         samples: Final samples
         trajectory: (optional) Full trajectory if return_trajectory=True
-    
+
     Example:
         >>> samples = sample_with_ode_solver(
         ...     model=trained_model,
@@ -397,14 +397,14 @@ def sample_with_ode_solver(
     """
     device = resolve_device(device)
     condition = condition.to(device)
-    
+
     solver_instance = ODEFlowSolver(
         model=model,
         method=solver,
         rtol=rtol,
         atol=atol
     )
-    
+
     return solver_instance.sample(
         condition=condition,
         return_trajectory=return_trajectory,
@@ -422,7 +422,7 @@ def compare_solvers(
 ) -> dict:
     """
     Compare different ODE solvers on the same input.
-    
+
     Args:
         model: Flow matching model
         condition: Conditioning tensor
@@ -431,13 +431,13 @@ def compare_solvers(
         device: Device for computation.  Defaults to CUDA when available,
             CPU otherwise.
         n_steps: Number of steps for fixed-step solvers
-    
+
     Returns:
         Dictionary with results for each solver including:
         - samples: Generated samples
         - time: Computation time
         - error: L2 error vs ground truth (if provided)
-    
+
     Example:
         >>> results = compare_solvers(
         ...     model=trained_model,
@@ -449,18 +449,18 @@ def compare_solvers(
         ...     print(f"{solver}: error={info['error']:.6f}, time={info['time']:.3f}s")
     """
     import time
-    
+
     if solvers is None:
         solvers = ['euler', 'midpoint', 'rk4', 'dopri5']
-    
+
     device = resolve_device(device)
     model.eval()
     condition = condition.to(device)
     if ground_truth is not None:
         ground_truth = ground_truth.to(device)
-    
+
     results = {}
-    
+
     for solver_name in solvers:
         # Create solver
         ode_solver = ODEFlowSolver(
@@ -469,33 +469,33 @@ def compare_solvers(
             rtol=1e-5,
             atol=1e-7
         )
-        
+
         # Time the sampling
         if device == 'cuda':
             torch.cuda.synchronize()
         start_time = time.time()
-        
+
         samples = ode_solver.sample(
             condition=condition,
             n_steps=n_steps if solver_name in ODEFlowSolver.FIXED_STEP_SOLVERS else None
         )
-        
+
         if device == 'cuda':
             torch.cuda.synchronize()
         elapsed = time.time() - start_time
-        
+
         # Compute error if ground truth provided
         error = None
         if ground_truth is not None:
             samples_flat = samples.flatten(start_dim=1)
             gt_flat = ground_truth.flatten(start_dim=1)
             error = (samples_flat - gt_flat).norm(dim=1).mean().item()
-        
+
         results[solver_name] = {
             'samples': samples.cpu(),
             'time': elapsed,
             'error': error,
             'solver_info': ode_solver.get_solver_info()
         }
-    
+
     return results

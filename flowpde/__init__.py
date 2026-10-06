@@ -43,18 +43,24 @@ Architecture:
 Documentation: https://sarperyn.github.io/FlowPDE/
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
+
+from flowpde._logging import (
+    disable_default_handler,
+    enable_default_handler,
+    set_verbosity,
+)
 
 # Direct imports - Natural API (recommended)
 from flowpde.flows import (
     NeuralODEFlow,
 )
+from flowpde.models import MLP, ConvNet, ResNet, UNet
 from flowpde.objectives import (
     FlowMatchingObjective,
     MaximumLikelihoodObjective,
     create_flow_matching,
 )
-from flowpde.models import MLP, UNet, ConvNet, ResNet
 from flowpde.solvers import ODEFlowSolver
 from flowpde.trainers import Trainer
 
@@ -69,17 +75,22 @@ __all__ = [
     'FlowMatchingObjective',
     'MaximumLikelihoodObjective',
     'create_flow_matching',
-    
+
     # Models (direct import - API)
     'MLP',
     'UNet',
     'ConvNet',
     'ResNet',
-    
+
     # Solvers
     'ODEFlowSolver',
-    
+
     # Trainers
     'Trainer',
-    
+
+    # Logging
+    'set_verbosity',
+    'disable_default_handler',
+    'enable_default_handler',
+
 ]

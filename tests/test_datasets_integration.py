@@ -158,7 +158,7 @@ def test_end_to_end_poisson_training_improves_sampled_error(poisson_splits, tmp_
     after = evaluator()["rel_l2"]
     assert after < before, f"sampled error should improve ({before:.4f} -> {after:.4f})"
 
-    checkpoint = torch.load(tmp_path / "best_model.pt", weights_only=False)
+    checkpoint = torch.load(tmp_path / "best_model.pt", weights_only=True)
     restored = FieldNormalizer.from_state_dict(checkpoint["normalizer_state"])
     assert restored.stats.keys() == normalizer.stats.keys()
 

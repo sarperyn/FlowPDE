@@ -33,27 +33,27 @@ sample = dataset[0]
 """
 
 try:
-    import jax  # noqa: F401
     import exponax  # noqa: F401
+    import jax  # noqa: F401
 except ImportError as error:
     raise ImportError(
         "FlowPDE's PDE data generators need JAX and Exponax, which are optional. "
         'Install them with: pip install "flowpde[data]"'
     ) from error
 
-from .base import PDEDataset, GenerationConfig
+from .base import GenerationConfig, PDEDataset
+from .burgers import BurgersConfig, BurgersGenerator
+from .darcy import DarcyConfig, DarcyDataset, DarcyGenerator
 from .generator import (
     ExponaxDatasetGenerator,
     FourierFieldConfig,
     log_uniform,
     sample_fourier_fields,
 )
-from .poisson import PoissonGenerator, PoissonConfig
-from .burgers import BurgersGenerator, BurgersConfig
-from .darcy import DarcyGenerator, DarcyConfig, DarcyDataset
+from .poisson import PoissonConfig, PoissonGenerator
 from .utilities import (
-    jax_to_torch,
     compute_normalization_stats,
+    jax_to_torch,
     sample_sine_fields,
 )
 

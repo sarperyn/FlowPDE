@@ -5,7 +5,8 @@ Defines the interface for all ODE/SDE solvers in FlowPDE.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Callable, Union, Tuple, Dict, Any
+from typing import Any, Callable, Dict, Optional, Tuple, Union
+
 import torch
 from torch import Tensor
 
@@ -13,16 +14,16 @@ from torch import Tensor
 class BaseSolver(ABC):
     """
     Abstract base class for ODE solvers.
-    
+
     This defines the common interface for numerical integration methods
     used to solve differential equations in normalizing flows.
-    
+
     Solvers can be:
     - Fixed-step (e.g., Euler, RK4)
     - Adaptive step-size (e.g., Dopri5, Dopri8)
     - Stochastic (SDE solvers) (Future work)
     """
-    
+
     def __init__(
         self,
         rtol: float = 1e-5,
@@ -32,7 +33,7 @@ class BaseSolver(ABC):
     ):
         """
         Initialize solver.
-        
+
         Args:
             rtol: Relative tolerance for adaptive solvers
             atol: Absolute tolerance for adaptive solvers
@@ -43,7 +44,7 @@ class BaseSolver(ABC):
         self.atol = atol
         self.method_options = method_options or {}
         self._extra_kwargs = kwargs
-    
+
     @abstractmethod
     def solve(
         self,
@@ -54,20 +55,20 @@ class BaseSolver(ABC):
     ) -> Union[Tensor, Tuple[Tensor, Dict[str, Any]]]:
         """
         Solve the differential equation $dy/dt = f(t, y)$.
-        
+
         Args:
             func: Function computing $dy/dt$ given $(t, y)$
                   Signature: func(t: Tensor, y: Tensor) -> Tensor
             y0: Initial state (batch_size, dim)
             t_span: Time interval $(t_{\text{start}}, t_{\text{end}})$
             **kwargs: Additional solving parameters
-            
+
         Returns:
             $y_{\text{final}}$: Final state at $t_{\text{end}}$ (batch_size, dim)
             info (optional): Dictionary with solving statistics
         """
         raise NotImplementedError
-    
+
     def solve_trajectory(
         self,
         func: Callable[[Tensor, Tensor], Tensor],
@@ -77,13 +78,13 @@ class BaseSolver(ABC):
     ) -> Union[Tensor, Tuple[Tensor, Dict[str, Any]]]:
         """
         Solve and return trajectory at specified time points.
-        
+
         Args:
             func: Function computing $dy/dt$
             y0: Initial state (batch_size, dim)
             t_eval: Time points for evaluation (n_steps,)
             **kwargs: Additional parameters
-            
+
         Returns:
             trajectory: States at each time point (n_steps, batch_size, dim)
             info (optional): Dictionary with solving statistics
@@ -92,7 +93,7 @@ class BaseSolver(ABC):
         # Subclasses can override for more efficient implementations
         trajectory = [y0]
         y_current = y0
-        
+
         for i in range(len(t_eval) - 1):
             t_span = (t_eval[i].item(), t_eval[i+1].item())
             result = self.solve(func, y_current, t_span, **kwargs)
@@ -101,35 +102,35 @@ class BaseSolver(ABC):
             else:
                 y_current = result
             trajectory.append(y_current)
-        
+
         return torch.stack(trajectory, dim=0)
-    
+
     @abstractmethod
     def get_solver_info(self) -> Dict[str, Any]:
         """
         Get information about the solver configuration.
-        
+
         Returns:
             Dictionary with solver properties
         """
         raise NotImplementedError
-    
+
     def set_tolerance(self, rtol: float, atol: float):
         """Update solver tolerances."""
         self.rtol = rtol
         self.atol = atol
-    
+
     @property
     @abstractmethod
     def is_adaptive(self) -> bool:
         """Whether this is an adaptive step-size solver."""
         raise NotImplementedError
-    
+
     @property
     def supports_adjoint(self) -> bool:
         """Whether this solver supports adjoint method for backprop."""
         return False
-    
+
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}("
@@ -141,10 +142,10 @@ class BaseSolver(ABC):
 class ODESolver(BaseSolver):
     """
     Base class specifically for ODE solvers.
-    
+
     Ordinary Differential Equation solvers for deterministic flows.
     """
-    
+
     def __init__(
         self,
         method: str,
@@ -154,7 +155,7 @@ class ODESolver(BaseSolver):
     ):
         """
         Initialize ODE solver.
-        
+
         Args:
             method: Integration method name
             rtol: Relative tolerance
@@ -163,7 +164,7 @@ class ODESolver(BaseSolver):
         """
         super().__init__(rtol=rtol, atol=atol, **kwargs)
         self.method = method
-    
+
     def get_solver_info(self) -> Dict[str, Any]:
         """Get ODE solver information."""
         return {

@@ -9,22 +9,14 @@ This module provides:
 
 # Metrics (primary entry point for evaluation)
 from .metrics import (
+    EvalMetrics,
+    ensemble_relative_l2,
+    h1_error,
+    mae,
+    mse,
     relative_l2_error,
     relative_l2_error_batch,
-    h1_error,
-    mse,
-    mae,
     relative_max_error,
-    ensemble_relative_l2,
-    EvalMetrics,
-)
-
-# General utilities
-from .utils import (
-    save_model,
-    print_stats,
-    plot_curve,
-    resolve_device,
 )
 
 # Uncertainty quantification metrics
@@ -38,6 +30,14 @@ from .uq_metrics import (
     reliability_curve,
     spread_skill_ratio,
     variance_decomposition,
+)
+
+# General utilities
+from .utils import (
+    plot_curve,
+    print_stats,
+    resolve_device,
+    save_model,
 )
 
 __all__ = [

@@ -7,6 +7,30 @@ releases may contain breaking API changes; they will be listed here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-06
+
+### Added
+
+- Library logging: progress and dataset summaries go through the `flowpde`
+  logger. `flowpde.set_verbosity("WARNING")` silences them, and
+  `flowpde.disable_default_handler()` routes them to your own logging setup.
+  Default output is unchanged.
+- `Trainer.load_checkpoint(..., weights_only=...)`, for trusted checkpoints that
+  store custom objects in `checkpoint_extra`.
+- The Python examples in the README and getting-started docs run in CI.
+- `CITATION.cff`, Zenodo metadata, `CONTRIBUTING.md`, and issue and pull-request
+  templates.
+
+### Changed
+
+- `Trainer.load_checkpoint` loads with `torch.load(weights_only=True)` by default,
+  so a checkpoint from an untrusted source cannot run code. Checkpoints written
+  by `Trainer` load unchanged; one that pickles custom objects in
+  `checkpoint_extra` now needs `weights_only=False`.
+- `zip` over UNet stages and normalizer fields is now `strict=True`, so a length
+  mismatch raises instead of silently truncating.
+- Wider lint rules (pycodestyle, import sorting, bugbear) across the codebase.
+
 ## [0.1.0] - 2026-10-06
 
 First public release.
@@ -33,5 +57,6 @@ First public release.
 - JAX and Exponax are an optional extra: `pip install "flowpde[data]"`. The
   core library and `FieldNormalizer` import without them.
 
-[Unreleased]: https://github.com/sarperyn/FlowPDE/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sarperyn/FlowPDE/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sarperyn/FlowPDE/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sarperyn/FlowPDE/releases/tag/v0.1.0

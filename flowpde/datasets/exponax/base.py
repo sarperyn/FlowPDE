@@ -6,10 +6,11 @@ Provides a PyTorch Dataset that wraps data generated directly from
 Exponax solvers and IC generators.
 """
 
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List, Literal, Optional
+
 import torch
 from torch.utils.data import Dataset
-from typing import Dict, Any, List, Optional, Literal
-from dataclasses import dataclass, asdict
 
 from ..normalization import FieldNormalizer
 

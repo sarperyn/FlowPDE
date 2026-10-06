@@ -211,6 +211,20 @@ Save the resolved dataset and objective configuration with each run so reported
 results can be reproduced. The project report documents the benchmark configurations
 used for its results.
 
+## Controlling Output
+
+Training progress and dataset summaries go through Python's `logging` under the
+`flowpde` logger, printed to stdout by default:
+
+```python
+import flowpde
+
+flowpde.set_verbosity("WARNING")    # silence progress output
+flowpde.set_verbosity("INFO")       # back to the default
+
+flowpde.disable_default_handler()   # send records to your own logging setup instead
+```
+
 ## Next Steps
 
 - [Architecture Overview](../concepts/architecture.md) — how the pieces fit together

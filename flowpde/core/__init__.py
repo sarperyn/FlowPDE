@@ -7,9 +7,9 @@ for the FlowPDE library, including:
 - Common interfaces and protocols
 """
 
+from .base_conditioner import BaseConditioner, ConcatConditioner, FiLMConditioner, NullConditioner
 from .base_flow import BaseFlow
 from .base_solver import BaseSolver, ODESolver
-from .base_conditioner import BaseConditioner, ConcatConditioner, FiLMConditioner, NullConditioner
 
 __all__ = [
     # Base classes

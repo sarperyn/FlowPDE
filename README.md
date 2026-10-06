@@ -276,7 +276,7 @@ gives APA and BibTeX, or use:
   title   = {FlowPDE: Flow-based Generative Models for PDEs},
   author  = {Yurtseven, Sarper},
   url     = {https://github.com/sarperyn/FlowPDE},
-  version = {0.1.0},
+  version = {0.2.0},
   year    = {2026},
 }
 ```

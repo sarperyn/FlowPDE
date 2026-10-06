@@ -200,7 +200,7 @@ class FieldNormalizer:
 
         chunks = torch.chunk(tensor, len(names), dim=channel_dim)
         restored = [
-            self.denormalize(name, chunk) for name, chunk in zip(names, chunks)
+            self.denormalize(name, chunk) for name, chunk in zip(names, chunks, strict=True)
         ]
         return torch.cat(restored, dim=channel_dim)
 

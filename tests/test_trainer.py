@@ -92,7 +92,7 @@ def test_validation_metric_drives_model_selection(setup, tmp_path):
     assert calls["n"] == 5
     assert trainer.best_metric == pytest.approx(0.3)
 
-    checkpoint = torch.load(tmp_path / "best_model.pt", weights_only=False)
+    checkpoint = torch.load(tmp_path / "best_model.pt", weights_only=True)
     assert checkpoint["epoch"] == 3, "best checkpoint should come from the epoch scoring 0.3"
 
 
@@ -146,7 +146,7 @@ def test_checkpoint_carries_normalizer_and_ema_state(setup, tmp_path):
     )
     trainer.train(loader, epochs=2, print_stats_interval=100, save_dir=str(tmp_path), save_interval=1)
 
-    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=False)
+    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=True)
     assert "ema_state" in checkpoint
     assert "normalizer_state" in checkpoint
 
@@ -162,7 +162,7 @@ def test_checkpoint_stores_ema_weights_as_model_state(setup, tmp_path):
     trainer = Trainer(objective, optimizer, device="cpu", ema_decay=0.9)
     trainer.train(loader, epochs=2, print_stats_interval=100, save_dir=str(tmp_path), save_interval=1)
 
-    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=False)
+    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=True)
     saved = checkpoint["model_state"]
     for name, shadow in trainer.ema.shadow.items():
         assert torch.allclose(saved[name], shadow, atol=1e-6)
@@ -181,7 +181,7 @@ def test_scheduler_is_optional(setup, tmp_path):
     _, loader, objective, optimizer = setup
     trainer = Trainer(objective, optimizer, scheduler=None, device="cpu")
     trainer.train(loader, epochs=1, print_stats_interval=100, save_dir=str(tmp_path), save_interval=1)
-    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=False)
+    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=True)
     assert checkpoint["scheduler_state"] is None
 
 
@@ -215,7 +215,7 @@ def test_checkpoint_keeps_raw_weights_for_resuming(setup, tmp_path):
     )
 
     live = {name: t.clone() for name, t in trainer.model.state_dict().items()}
-    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=False)
+    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=True)
 
     assert "raw_model_state" in checkpoint
     for name, tensor in live.items():
@@ -272,7 +272,7 @@ def test_load_checkpoint_for_inference_gives_ema_weights(setup, tmp_path):
         loader, epochs=3, print_stats_interval=100,
         save_dir=str(tmp_path), save_interval=3,
     )
-    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=False)
+    checkpoint = torch.load(tmp_path / "latest_checkpoint.pt", weights_only=True)
 
     trainer.load_checkpoint(
         str(tmp_path / "latest_checkpoint.pt"), resume_training=False
@@ -291,7 +291,7 @@ def test_load_checkpoint_rejects_legacy_ema_checkpoint(setup, tmp_path):
     )
 
     path = tmp_path / "latest_checkpoint.pt"
-    legacy = torch.load(path, weights_only=False)
+    legacy = torch.load(path, weights_only=True)
     legacy.pop("raw_model_state")
     torch.save(legacy, path)
 
@@ -344,3 +344,49 @@ def test_saving_without_a_directory_is_an_explicit_error(setup):
 
     with pytest.raises(RuntimeError, match="No save directory"):
         trainer._save("best_model.pt", epoch=0, epoch_loss=0.0)
+
+
+def test_full_checkpoint_loads_with_weights_only(setup, tmp_path):
+    """EMA, scheduler and normalizer state all survive the safe loader."""
+    _, loader, objective, optimizer = setup
+    normalizer = FieldNormalizer({"solution": {"mean": 1.0, "std": 2.0}})
+    trainer = Trainer(
+        objective,
+        optimizer,
+        scheduler=torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5),
+        device="cpu",
+        ema_decay=0.9,
+        checkpoint_extra={"normalizer_state": normalizer.state_dict()},
+    )
+    trainer.train(
+        loader, epochs=2, print_stats_interval=100,
+        save_dir=str(tmp_path), save_interval=1,
+    )
+
+    checkpoint = trainer.load_checkpoint(str(tmp_path / "latest_checkpoint.pt"))
+    assert checkpoint["scheduler_state"]["last_epoch"] == 2
+    restored = FieldNormalizer.from_state_dict(checkpoint["normalizer_state"])
+    assert restored.state_dict() == normalizer.state_dict()
+
+
+def test_load_checkpoint_refuses_pickled_objects(setup, tmp_path):
+    """Arbitrary objects in a checkpoint need an explicit opt-in to unpickle."""
+    _, loader, objective, optimizer = setup
+    trainer = Trainer(
+        objective, optimizer, device="cpu",
+        checkpoint_extra={"config": _OpaqueConfig()},
+    )
+    trainer.train(
+        loader, epochs=1, print_stats_interval=100,
+        save_dir=str(tmp_path), save_interval=1,
+    )
+    path = str(tmp_path / "latest_checkpoint.pt")
+
+    with pytest.raises(Exception, match="weights_only"):
+        trainer.load_checkpoint(path)
+    checkpoint = trainer.load_checkpoint(path, weights_only=False)
+    assert isinstance(checkpoint["config"], _OpaqueConfig)
+
+
+class _OpaqueConfig:
+    """A custom object the safe loader does not allowlist."""

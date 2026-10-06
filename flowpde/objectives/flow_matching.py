@@ -9,54 +9,55 @@ This module provides a single, configurable objective that encompasses:
 All variants are achieved through configuration, not inheritance.
 """
 
+from typing import Any, Dict, Optional, Tuple, Union
+
 import torch
 import torch.nn.functional as F
-from torch import nn, Tensor
-from typing import Dict, Optional, Tuple, Union, Any
+from torch import Tensor, nn
 
 from flowpde.flows import NeuralODEFlow
 from flowpde.flows.components import (
-    PathInterpolant,
-    TimeSampler,
     Coupling,
+    PathInterpolant,
     SourceDistribution,
-    get_path,
-    get_time_sampler,
+    TimeSampler,
     get_coupling,
+    get_path,
     get_source,
+    get_time_sampler,
 )
 
 
 class FlowMatchingObjective(nn.Module):
     """
     Flow-matching objective for `NeuralODEFlow`.
-    
+
     This objective trains a neural ODE flow by supervised velocity regression
     along interpolation paths instead of maximum likelihood. Multiple flow
     matching variants are configured through modular components:
-    
+
     - **Path**: How to interpolate between noise and data
     - **Time Sampler**: Distribution for sampling training times
     - **Coupling**: How to pair noise and data samples
     - **Source**: Where trajectories start (noise, or precomputed pairs)
-    
+
     Standard Configurations:
-    
+
     1. **Flow Matching** (default):
        ```python
        FlowMatchingObjective(flow, path='linear', time_sampler='uniform')
        ```
-    
+
     2. **Rectified Flow**:
        ```python
        FlowMatchingObjective(flow, path='linear', time_sampler='logit_normal')
        ```
-    
+
     3. **OT-Conditional Flow Matching**:
        ```python
        FlowMatchingObjective(flow, path='ot_conditional', sigma=0.01)
        ```
-    
+
     Args:
         flow: Neural ODE flow whose model predicts velocity
             v(x_t, condition, t)
@@ -69,13 +70,13 @@ class FlowMatchingObjective(nn.Module):
         sigma: Noise level for OT-conditional path (default: 0.0)
         target_key: Default batch key for target tensors (default: 'u')
         condition_key: Default batch key for condition tensors (default: 'f')
-    
+
     References:
         - Lipman et al., "Flow Matching for Generative Modeling", ICLR 2023
         - Liu et al., "Flow Straight and Fast: Rectified Flow", ICLR 2023
         - Tong et al., "Conditional Flow Matching", NeurIPS 2023
     """
-    
+
     def __init__(
         self,
         flow: NeuralODEFlow,
@@ -92,25 +93,25 @@ class FlowMatchingObjective(nn.Module):
         self.model = flow.model
         self.target_key = target_key or flow.target_key
         self.condition_key = condition_key or flow.condition_key
-        
+
         # Initialize components
         # Pass sigma to OT path if needed
         if isinstance(path, str) and path in ['ot_conditional', 'conditional_optimal_transport', 'ot']:
             self.path = get_path(path, sigma=sigma)
         else:
             self.path = get_path(path)
-        
+
         self.time_sampler = get_time_sampler(time_sampler)
         self.coupling = get_coupling(coupling)
         self.source = get_source(source)
         self.sigma = sigma
-        
+
         # Store string names for config
         self._path_name = path if isinstance(path, str) else path.__class__.__name__
         self._time_sampler_name = time_sampler if isinstance(time_sampler, str) else time_sampler.__class__.__name__
         self._coupling_name = coupling if isinstance(coupling, str) else coupling.__class__.__name__
         self._source_name = source if isinstance(source, str) else source.__class__.__name__
-    
+
     def sample_base_distribution(
         self,
         shape: Tuple[int, ...],
@@ -132,7 +133,7 @@ class FlowMatchingObjective(nn.Module):
     @property
     def model_device(self) -> torch.device:
         return self.flow.model_device
-    
+
     def _source_defines_pairing(self, batch: Optional[Dict[str, Tensor]]) -> bool:
         """Whether the source already determines which x_0 goes with which x_1.
 
@@ -153,23 +154,23 @@ class FlowMatchingObjective(nn.Module):
     ) -> Tensor:
         """
         Compute flow matching loss.
-        
+
         The loss minimizes the MSE between predicted and target velocities:
-        
+
         $$\\mathcal{L} = \\mathbb{E}_{t, x_0, x_1}[\\|v_\\theta(x_t, f, t) - v_t\\|^2]$$
-        
+
         where:
         - $x_t$ is the interpolated point on the path
         - $v_t$ is the target velocity (derivative of path)
         - $f$ is the conditioning information
-        
+
         Args:
             batch: Dictionary containing target and condition tensors.
             target_key: Batch key for target data. Defaults to this flow's
                 configured target key ('u' by default).
             condition_key: Batch key for conditioning data. Defaults to this
                 flow's configured condition key ('f' by default).
-        
+
         Returns:
             MSE loss tensor (scalar)
         """
@@ -181,31 +182,31 @@ class FlowMatchingObjective(nn.Module):
         )
         self.flow.set_target_dim(x_1.shape[1])
         batch_size = x_1.shape[0]
-        
+
         # Draw x_0 from the source. Passing the batch lets BatchSource
         # return the precomputed x_0 that reflow depends on.
         x_0 = self.sample_base_distribution(x_1.shape, self.model_device, batch)
-        
+
         # Apply coupling strategy. A source that carries its own pairing
         # already fixes which x_0 goes with which x_1, so re-coupling here
         # would destroy it.
         if not self._source_defines_pairing(batch):
             x_0, x_1 = self.coupling(x_0, x_1)
-        
+
         # Sample time
         t = self.time_sampler(batch_size, self.model_device)
-        
+
         # Compute path interpolation and target velocity
         x_t, v_target = self.path(x_0, x_1, t)
-        
+
         # Predict velocity with model
         v_pred = self.model(x_t, condition, t)
-        
+
         # MSE loss
         loss = F.mse_loss(v_pred, v_target)
-        
+
         return loss
-    
+
     def sample(
         self,
         condition: Tensor,
@@ -409,7 +410,7 @@ class FlowMatchingObjective(nn.Module):
             'condition_key': self.condition_key,
             'model_type': self.model.__class__.__name__,
         }
-    
+
     def __repr__(self) -> str:
         return (
             f"FlowMatchingObjective(\n"
@@ -429,7 +430,7 @@ def create_flow_matching(
 ) -> FlowMatchingObjective:
     """
     Create a flow matching objective with preset configurations.
-    
+
     Args:
         flow: Neural ODE flow
         variant: Preset name:
@@ -437,7 +438,7 @@ def create_flow_matching(
             - 'rectified': Rectified flow (linear, logit-normal)
             - 'ot_cfm': OT-Conditional FM (ot_conditional, uniform)
         **kwargs: Override any default parameters
-    
+
     Returns:
         Configured flow matching objective
     """
@@ -467,11 +468,11 @@ def create_flow_matching(
             'sigma': 0.01,
         },
     }
-    
+
     if variant not in presets:
         raise ValueError(f"Unknown variant: '{variant}'. Available: {list(presets.keys())}")
-    
+
     config = presets[variant].copy()
     config.update(kwargs)
-    
+
     return FlowMatchingObjective(flow, **config)

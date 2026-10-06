@@ -5,10 +5,11 @@ Continuous normalizing flows learn invertible transformations using neural ODEs
 and can compute exact log probabilities via the instantaneous change of variables.
 """
 
+from typing import Any, Dict, Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
 from torch import Tensor
-from typing import Any, Dict, Optional, Tuple, Union
 
 from flowpde.core.base_flow import BaseFlow
 
@@ -16,11 +17,11 @@ from flowpde.core.base_flow import BaseFlow
 class NeuralODELogProbVectorField(nn.Module):
     """
     Vector field wrapper that includes log probability computation.
-    
+
     Augments state with log probability and computes trace of Jacobian
     for the instantaneous change of variables formula.
     """
-    
+
     def __init__(
         self,
         model: nn.Module,
@@ -33,58 +34,58 @@ class NeuralODELogProbVectorField(nn.Module):
         self.condition = condition
         self.trace_estimator = trace_estimator
         self.n_trace_samples = n_trace_samples
-    
+
     def forward(self, t: Tensor, state: Tensor) -> Tensor:
         r"""
         Compute augmented dynamics: $[dx/dt, d(\log p)/dt]$.
-        
+
         Args:
             t: Current time (scalar)
             state: Augmented state $[x, \log p_x]$ with shapes:
                    x: (batch_size, dim)
                    $\log p_x$: (batch_size, 1)
-        
+
         Returns:
             Augmented dynamics $[dx/dt, d(\log p_x)/dt]$
         """
         batch_size = state.shape[0]
-        
+
         # Split augmented state; the log-density channel state[:, -1:] does not feed back into the dynamics
         x = state[:, :-1]  # (batch_size, dim)
-        
+
         # Prepare time for model
         t_batch = t.expand(batch_size, 1)
-        
+
         # Enable gradients for trace computation
         with torch.enable_grad():
             x_requires_grad = x.requires_grad
             x = x.requires_grad_(True)
-            
+
             # Compute velocity
             v = self.model(x, self.condition, t_batch)
-            
+
             # Compute trace of Jacobian
             trace = self._compute_trace(v, x)
-            
+
             # Restore gradient state
             x = x.requires_grad_(x_requires_grad)
-        
+
         # Change of variables: $d(\log p)/dt = -\text{tr}(\partial v/\partial x)$
         dlogpx_dt = -trace.view(batch_size, 1)
-        
+
         # Combine into augmented dynamics
         dstate_dt = torch.cat([v, dlogpx_dt], dim=1)
-        
+
         return dstate_dt
-    
+
     def _compute_trace(self, v: Tensor, x: Tensor) -> Tensor:
         r"""
         Compute trace of Jacobian $\partial v/\partial x$.
-        
+
         Args:
             v: Velocity field (batch_size, dim)
             x: State (batch_size, dim)
-        
+
         Returns:
             Trace (batch_size,)
         """
@@ -94,41 +95,41 @@ class NeuralODELogProbVectorField(nn.Module):
             return self._hutchinson_trace(v, x)
         else:
             raise ValueError(f"Unknown trace estimator: {self.trace_estimator}")
-    
+
     def _exact_trace(self, v: Tensor, x: Tensor) -> Tensor:
         """Compute exact trace by summing diagonal of Jacobian."""
         batch_size, dim = v.shape
         trace = torch.zeros(batch_size, device=v.device, dtype=v.dtype)
-        
+
         for i in range(dim):
             grad_outputs = torch.zeros_like(v)
             grad_outputs[:, i] = 1
-            
+
             dvi_dx = torch.autograd.grad(
                 v, x,
                 grad_outputs=grad_outputs,
                 create_graph=True,
                 retain_graph=True
             )[0]
-            
+
             trace += dvi_dx[:, i]
-        
+
         return trace
-    
+
     def _hutchinson_trace(self, v: Tensor, x: Tensor) -> Tensor:
         r"""
         Hutchinson trace estimator: $\mathbb{E}[\varepsilon^T (\partial v/\partial x) \varepsilon]$ where $\varepsilon \sim \mathcal{N}(0, I)$.
-        
+
         Unbiased estimator that only requires one Jacobian-vector product.
         """
         batch_size, dim = v.shape
-        
+
         # Sample random vectors
         epsilon = torch.randn(
             self.n_trace_samples, batch_size, dim,
             device=v.device, dtype=v.dtype
         )
-        
+
         traces = []
         for eps in epsilon:
             # Compute Jacobian-vector product
@@ -138,11 +139,11 @@ class NeuralODELogProbVectorField(nn.Module):
                 create_graph=True,
                 retain_graph=True
             )[0]
-            
+
             # Trace estimate: ε^T * jvp
             trace = (eps * jvp).sum(dim=1)
             traces.append(trace)
-        
+
         # Average over samples
         return torch.stack(traces).mean(dim=0)
 
@@ -150,12 +151,12 @@ class NeuralODELogProbVectorField(nn.Module):
 class NeuralODEFlow(BaseFlow):
     r"""
     Conditional neural ODE flow with optional exact log probability.
-    
+
     `NeuralODEFlow` represents the continuous-time flow/dynamics. Training
     objectives live in `flowpde.objectives`.
-    
+
     $$\log p(x_1) = \log p(x_0) - \int_0^1 \text{tr}\left(\frac{\partial f}{\partial x}\right) dt$$
-    
+
     Args:
         model: Neural network that computes velocity $v(x, \text{condition}, t)$
         base_distribution: Base distribution for sampling ('gaussian' or 'uniform')
@@ -163,13 +164,13 @@ class NeuralODEFlow(BaseFlow):
         n_trace_samples: Number of samples for Hutchinson estimator
         target_key: Default batch key for target tensors (default: 'u')
         condition_key: Default batch key for condition tensors (default: 'f')
-    
+
     References:
         - Grathwohl et al., "FFJORD: Free-form Continuous Dynamics for Scalable
           Reversible Generative Models", ICLR 2019
         - Chen et al., "Neural Ordinary Differential Equations", NeurIPS 2018
     """
-    
+
     def __init__(
         self,
         model: nn.Module,
@@ -255,7 +256,7 @@ class NeuralODEFlow(BaseFlow):
             method=method if method is not None else self.ode_method,
             **solver_kwargs,
         )
-    
+
     def sample_base_distribution(
         self,
         shape: Tuple[int, ...],
@@ -268,7 +269,7 @@ class NeuralODEFlow(BaseFlow):
             return torch.rand(*shape, device=device) * 2 - 1
         else:
             raise ValueError(f"Unknown base distribution: {self.base_distribution}")
-    
+
     def _integrate_logprob(
         self,
         x: Tensor,

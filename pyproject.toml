@@ -95,5 +95,7 @@ target-version = "py311"
 extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
-# Errors and pyflakes only for now; widen once the codebase is clean.
-select = ["E9", "F"]
+# pycodestyle, pyflakes, import sorting and bugbear.
+select = ["E", "W", "F", "I", "B"]
+# Long docstring and formula lines read better unwrapped.
+ignore = ["E501"]

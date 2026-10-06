@@ -47,14 +47,14 @@ sample = dataset[0]
 ```
 """
 
+import logging
 from dataclasses import dataclass
-from typing import List, Optional, Literal
-
-import torch
-from torch.utils.data import Dataset
+from typing import List, Literal, Optional
 
 import jax
 import jax.numpy as jnp
+import torch
+from torch.utils.data import Dataset
 
 from ..normalization import FieldNormalizer
 from .base import GenerationConfig
@@ -63,6 +63,8 @@ from .generator import (
     FourierFieldConfig,
     sample_fourier_fields,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _grf_1d(key, N: int, alpha: float, tau: float):
@@ -647,11 +649,12 @@ class DarcyGenerator(ExponaxDatasetGenerator):
         )
 
         spatial_str = 'x'.join([str(N)] * d)
-        print(
-            f"Generated Darcy {d}D dataset: {n} samples, {spatial_str} grid, "
-            f"κ ~ LogNormal(α={cfg.kappa_alpha}, τ={cfg.kappa_tau}, "
-            f"scale={cfg.kappa_scale}), CG steps={cfg.cg_steps}, "
-            f"worst CG residual={worst_residual:.2e}"
+        logger.info(
+            "Generated Darcy %dD dataset: %d samples, %s grid, "
+            "κ ~ LogNormal(α=%s, τ=%s, scale=%s), CG steps=%s, "
+            "worst CG residual=%.2e",
+            d, n, spatial_str, cfg.kappa_alpha, cfg.kappa_tau,
+            cfg.kappa_scale, cfg.cg_steps, worst_residual,
         )
 
         return self.wrap_dataset(

@@ -1,9 +1,12 @@
+import logging
 import os
 from typing import Any, Optional, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_device(device: Optional[str] = None) -> str:
@@ -72,7 +75,10 @@ def save_model(
 
 
 def print_stats(**kwargs) -> None:
-    """Print key-value pairs on one line, auto-formatting numeric values."""
+    """Log key-value pairs on one line at INFO, auto-formatting numeric values.
+
+    Output goes through the ``flowpde`` logger; see `flowpde.set_verbosity`.
+    """
     parts = []
     for k, v in kwargs.items():
         if isinstance(v, float):
@@ -82,7 +88,7 @@ def print_stats(**kwargs) -> None:
         else:
             v_str = str(v)
         parts.append(f"{k}: {v_str}")
-    print(" | ".join(parts))
+    logger.info(" | ".join(parts))
 
 
 def plot_curve(
@@ -118,4 +124,4 @@ def plot_curve(
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     plt.savefig(save_path, bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved loss curve to {save_path}")
+    logger.info("Saved loss curve to %s", save_path)
