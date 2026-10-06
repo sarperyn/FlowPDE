@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use FlowPDE in your research, please cite it as below."
+type: software
+title: "FlowPDE: Flow-based Generative Models for PDEs"
+abstract: >-
+  FlowPDE is a PyTorch library for learning conditional distributions between
+  PDE fields. It combines flow matching with neural ODEs to solve forward and
+  inverse problems, with Exponax-based Poisson, Burgers and Darcy datasets.
+authors:
+  - family-names: Yurtseven
+    given-names: Sarper
+version: 0.1.0
+date-released: 2026-10-06
+license: MIT
+repository-code: "https://github.com/sarperyn/FlowPDE"
+url: "https://sarperyn.github.io/FlowPDE/"
+keywords:
+  - partial differential equations
+  - flow matching
+  - neural ODE
+  - generative models
+  - inverse problems
+  - scientific machine learning
+  - pytorch

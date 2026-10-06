@@ -265,6 +265,23 @@ It is built with MkDocs and API pages are generated from the docstrings by `mkdo
 ![FlowPDE documentation, API reference page](https://raw.githubusercontent.com/sarperyn/FlowPDE/main/docs/assets/readme/documentation.png)
 
 
+## Citation
+
+If you use FlowPDE in your research, please cite it. GitHub's **Cite this repository**
+button (generated from [`CITATION.cff`](https://github.com/sarperyn/FlowPDE/blob/main/CITATION.cff))
+gives APA and BibTeX, or use:
+
+```bibtex
+@software{flowpde,
+  title   = {FlowPDE: Flow-based Generative Models for PDEs},
+  author  = {Yurtseven, Sarper},
+  url     = {https://github.com/sarperyn/FlowPDE},
+  version = {0.1.0},
+  year    = {2026},
+}
+```
+
+
 ## Credits
 
 No third-party code is included in this repository. Every module under `flowpde/` was written specifically for this project, and the MIT licence applies to the entire codebase.

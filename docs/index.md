@@ -85,9 +85,10 @@ See the [Installation Guide](getting_started/installation.md) for details.
 
 ```bibtex
 @software{flowpde,
-  title  = {FlowPDE: Flow-based Generative Models for PDEs},
-  author = {Yurtseven, Sarper},
-  url    = {https://github.com/sarperyn/FlowPDE},
-  year   = {2026},
+  title   = {FlowPDE: Flow-based Generative Models for PDEs},
+  author  = {Yurtseven, Sarper},
+  url     = {https://github.com/sarperyn/FlowPDE},
+  version = {0.1.0},
+  year    = {2026},
 }
 ```
