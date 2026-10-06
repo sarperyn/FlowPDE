@@ -3,7 +3,9 @@
 Each page's ```python blocks are executed in order in one namespace, the way a
 reader would paste them.  Sizes are shrunk first (samples, grid, epochs,
 channels, steps) so this checks that the documented API still exists and fits
-together, not that the documented run converges.
+together, not that the documented run converges.  A block directly preceded by
+an HTML comment starting ``<!-- docs-test: skip`` is left out, for examples
+that need files a test cannot provide.
 """
 
 import re
@@ -41,7 +43,10 @@ SHRINK = [
 
 def python_blocks(page: str) -> list[str]:
     text = (ROOT / page).read_text()
-    return re.findall(r"^```python\n(.*?)^```", text, flags=re.S | re.M)
+    blocks = re.findall(
+        r"^(<!-- docs-test: skip.*?-->\n)?```python\n(.*?)^```", text, flags=re.S | re.M
+    )
+    return [code for skip, code in blocks if not skip]
 
 
 def shrink(code: str) -> str:

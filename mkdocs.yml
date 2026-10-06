@@ -101,6 +101,7 @@ nav:
   - Concepts:
     - Architecture Overview: concepts/architecture.md
     - Flow Matching: concepts/flow_matching.md
+  - Benchmarks: benchmarks.md
   - API Reference:
     - api/index.md
     - Core:
@@ -129,6 +130,7 @@ nav:
     - Datasets:
       - Exponax Integration: api/datasets/exponax.md
       - Normalization: api/datasets/normalization.md
+    - Pretrained: api/pretrained.md
     - Utils:
       - Metrics: api/utils/metrics.md
       - UQ Metrics: api/utils/uq_metrics.md

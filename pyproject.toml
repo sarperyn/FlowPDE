@@ -77,7 +77,7 @@ version = { attr = "flowpde.__version__" }
 include = ["flowpde*"]
 
 [tool.setuptools.package-data]
-flowpde = ["py.typed"]
+flowpde = ["py.typed", "pretrained/registry.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
