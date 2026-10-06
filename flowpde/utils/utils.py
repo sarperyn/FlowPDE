@@ -101,7 +101,7 @@ def plot_curve(
         ylabel:       Y-axis label.
         save_path:    File path for the saved figure (PNG/PDF/SVG).
     """
-    plt.style.use("seaborn-v0_8-whitegrid")
+    plt.style.use("seaborn-v0_8-whitegrid")  # bundled with matplotlib
     fig, ax = plt.subplots(figsize=(8, 5), dpi=120)
 
     epochs = np.arange(1, len(epoch_losses) + 1)

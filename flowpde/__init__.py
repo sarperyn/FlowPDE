@@ -43,6 +43,8 @@ Architecture:
 Documentation: https://sarperyn.github.io/FlowPDE/
 """
 
+__version__ = "0.1.0"
+
 # Direct imports - Natural API (recommended)
 from flowpde.flows import (
     NeuralODEFlow,
@@ -58,7 +60,8 @@ from flowpde.trainers import Trainer
 
 # Public API
 __all__ = [
-    
+    '__version__',
+
     # Flows (direct import - API)
     'NeuralODEFlow',
 

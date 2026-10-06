@@ -1,0 +1,72 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Ruff
+        run: uvx ruff check flowpde tests
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # CPU-only torch keeps the install small; the lockfile would pull CUDA wheels.
+      - name: Install
+        run: |
+          uv venv
+          uv pip install --torch-backend=cpu -e ".[data]" pytest
+
+      - name: Pytest
+        run: .venv/bin/python -m pytest -q
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Build
+        run: uv build
+
+      - name: Check metadata
+        run: uvx twine check --strict dist/*
+
+      # The core API must import without the optional `data` extra (JAX/Exponax).
+      - name: Smoke test wheel without extras
+        run: |
+          uv venv --clear
+          uv pip install --torch-backend=cpu dist/*.whl
+          .venv/bin/python -c "
+          import sys, flowpde
+          from flowpde import NeuralODEFlow, FlowMatchingObjective, UNet
+          from flowpde.datasets import FieldNormalizer
+          assert 'jax' not in sys.modules
+          print('flowpde', flowpde.__version__, 'OK')
+          "

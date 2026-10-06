@@ -4,9 +4,26 @@
 
 - Python 3.11+
 - PyTorch 2.0+
-- JAX 0.4.12+ (for Exponax PDE data generation)
+- JAX 0.4.12+ (only for the Exponax data generators)
 
-## Install with uv (recommended)
+## Install from PyPI
+
+```bash
+pip install "flowpde[data]"   # library + Exponax/JAX PDE data generators
+pip install flowpde           # library only
+```
+
+The core install covers flows, objectives, models, solvers, the trainer, metrics and
+`FieldNormalizer`. The `data` extra adds JAX and Exponax, which the `PoissonGenerator`,
+`BurgersGenerator` and `DarcyGenerator` in `flowpde.datasets` need; importing one of
+them without the extra raises an `ImportError` that names the missing install.
+
+| Extra | Adds |
+|-------|------|
+| `data` | `jax`, `exponax` — PDE dataset generation |
+| `docs` | MkDocs toolchain for building this site |
+
+## Install from source with uv (recommended for development)
 
 ```bash
 git clone https://github.com/sarperyn/FlowPDE.git
@@ -18,11 +35,11 @@ source .venv/bin/activate
 ```
 
 `uv sync` creates the virtual environment when needed and installs the versions
-recorded in `uv.lock`.
+recorded in `uv.lock`, including the `data` extra and the `dev` group (pytest, ruff).
 
-## Install with pip
+## Install from source with pip
 
-This path requires Python 3.11 to be installed already and does not require `uv`:
+This path requires Python 3.11+ to be installed already and does not require `uv`:
 
 ```bash
 git clone https://github.com/sarperyn/FlowPDE.git
@@ -30,31 +47,22 @@ cd FlowPDE
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -e . --no-deps
+python -m pip install -e ".[data]"
 ```
 
 On Windows, activate the environment with `.venv\Scripts\activate`.
 
-### Optional extras
-
-```bash
-python -m pip install -e ".[dev]"    # pytest
-python -m pip install -e ".[docs]"   # documentation tools
-```
-
 ## Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| `torch` | Deep learning framework |
-| `torchdiffeq` | ODE integration for inference |
-| `exponax` | Spectral PDE solvers for data generation ([docs](https://fkoehler.site/exponax/)) |
-| `jax` | Required by Exponax |
-| `scipy` | Mini-batch OT coupling |
-| `matplotlib` | Visualization |
-| `PyYAML` | Configuration files |
-| `numpy` | Numerical operations |
+| Package | Purpose | Install |
+|---------|---------|---------|
+| `torch` | Deep learning framework | core |
+| `torchdiffeq` | ODE integration for inference | core |
+| `numpy` | Numerical operations | core |
+| `scipy` | Mini-batch OT coupling | core |
+| `matplotlib` | Training-curve plots | core |
+| `exponax` | Spectral PDE solvers for data generation ([docs](https://fkoehler.site/exponax/)) | `data` |
+| `jax` | Required by Exponax | `data` |
 
 ## JAX Installation
 
@@ -92,13 +100,13 @@ print("FlowPDE installed successfully!")
 With uv:
 
 ```bash
-uv run -m pytest                 # full suite (~8s)
+uv run -m pytest                 # full suite (~20s)
 uv run -m pytest -m "not slow"   # skip the Exponax integration tests
 ```
 
-With pip, first install the development extra and then run pytest directly:
+With pip, install the package with the `data` extra plus pytest, then run pytest directly:
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[data]" pytest
 python -m pytest
 ```

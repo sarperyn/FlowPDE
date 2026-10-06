@@ -8,7 +8,6 @@ Unlike classification ResNets, this preserves spatial resolution
 
 from typing import Any, Optional, List
 
-import torch
 from torch import nn, Tensor
 
 from .components import (

@@ -243,8 +243,7 @@ def _solve_one_1d(kappa, f, h: float, N: int, cg_steps: int):
         `(u, relative_residual)`: solution of shape `(1, N)` with u=0 at the
         endpoints, and the CG relative residual for that sample.
     """
-    N_int = N - 2
-    f_int = f[0, 1:-1]                             # interior RHS, (N_int,)
+    f_int = f[0, 1:-1]                             # interior RHS, (N - 2,)
 
     def matvec(u):
         return _matvec_1d(u, kappa[0], h)

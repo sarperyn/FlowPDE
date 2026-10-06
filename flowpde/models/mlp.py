@@ -7,7 +7,6 @@ convolutional structure is not beneficial.
 
 from typing import Optional
 
-import torch
 from torch import nn, Tensor
 
 from .components import (

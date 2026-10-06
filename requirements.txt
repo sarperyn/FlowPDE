@@ -1,9 +1,0 @@
-torch>=2.0.0
-torchdiffeq>=0.2.4
-numpy
-PyYAML>=6.0
-matplotlib
-scipy
-jax>=0.4.12
-exponax>=0.1.0
-seaborn

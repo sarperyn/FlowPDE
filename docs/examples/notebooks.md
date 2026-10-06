@@ -54,8 +54,8 @@ the right starting point for understanding what the flow is being asked to learn
 ## Running Locally
 
 ```bash
-pip install -e ".[docs]"   # includes jupyter via mkdocs-jupyter
-jupyter notebook notebooks/
+pip install -e ".[data]" jupyterlab
+jupyter lab notebooks/
 ```
 
 Detailed ablations and benchmark configurations are in the

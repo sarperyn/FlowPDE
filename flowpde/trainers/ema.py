@@ -27,7 +27,6 @@ with ema.average_parameters():
 
 from __future__ import annotations
 
-import copy
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, Optional
 

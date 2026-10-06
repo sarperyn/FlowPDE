@@ -49,9 +49,8 @@ class NeuralODELogProbVectorField(nn.Module):
         """
         batch_size = state.shape[0]
         
-        # Split augmented state
+        # Split augmented state; the log-density channel state[:, -1:] does not feed back into the dynamics
         x = state[:, :-1]  # (batch_size, dim)
-        log_px = state[:, -1:]  # (batch_size, 1)
         
         # Prepare time for model
         t_batch = t.expand(batch_size, 1)

@@ -32,6 +32,15 @@ sample = dataset[0]
 ```
 """
 
+try:
+    import jax  # noqa: F401
+    import exponax  # noqa: F401
+except ImportError as error:
+    raise ImportError(
+        "FlowPDE's PDE data generators need JAX and Exponax, which are optional. "
+        'Install them with: pip install "flowpde[data]"'
+    ) from error
+
 from .base import PDEDataset, GenerationConfig
 from .generator import (
     ExponaxDatasetGenerator,

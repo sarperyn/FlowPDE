@@ -8,7 +8,6 @@ failure was silent — losses looked fine.
 
 import pytest
 import torch
-from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from flowpde.flows import BatchSource, GaussianSource, NeuralODEFlow, get_source

@@ -46,29 +46,47 @@ Burgers Example:
 
 Dependencies:
 -------------
-Requires Exponax: pip install exponax jax
+The generators need JAX and Exponax: pip install "flowpde[data]"
+`FieldNormalizer` is pure PyTorch and works without them.
 """
+
+from importlib import import_module
 
 from .normalization import FieldNormalizer
 
-# Exponax integration
-from .exponax import (
-    PDEDataset,
-    GenerationConfig,
-    ExponaxDatasetGenerator,
-    FourierFieldConfig,
-    sample_fourier_fields,
-    log_uniform,
-    PoissonGenerator,
-    PoissonConfig,
-    BurgersGenerator,
-    BurgersConfig,
-    DarcyGenerator,
-    DarcyConfig,
-    DarcyDataset,
-    jax_to_torch,
-    sample_sine_fields,
-)
+# Everything else lives in the Exponax integration, which imports JAX.
+# Load it on first attribute access so `import flowpde.datasets` and
+# `FieldNormalizer` work without the optional `data` extra installed.
+_EXPONAX_NAMES = frozenset({
+    'PDEDataset',
+    'GenerationConfig',
+    'ExponaxDatasetGenerator',
+    'FourierFieldConfig',
+    'sample_fourier_fields',
+    'log_uniform',
+    'PoissonGenerator',
+    'PoissonConfig',
+    'BurgersGenerator',
+    'BurgersConfig',
+    'DarcyGenerator',
+    'DarcyConfig',
+    'DarcyDataset',
+    'jax_to_torch',
+    'sample_sine_fields',
+})
+
+
+def __getattr__(name):
+    if name in _EXPONAX_NAMES:
+        value = getattr(import_module('.exponax', __name__), name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(set(globals()) | _EXPONAX_NAMES)
+
 
 __all__ = [
     # Generators

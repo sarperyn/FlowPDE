@@ -76,9 +76,7 @@ validation and evaluation in physical units.
 ## Installation
 
 ```bash
-git clone https://github.com/sarperyn/FlowPDE.git
-cd FlowPDE
-uv venv && uv sync
+pip install "flowpde[data]"
 ```
 
 See the [Installation Guide](getting_started/installation.md) for details.
