@@ -10,6 +10,7 @@ authors:
   - family-names: Yurtseven
     given-names: Sarper
 version: 0.2.0
+doi: "10.5281/zenodo.23193614"
 date-released: 2026-10-06
 license: MIT
 repository-code: "https://github.com/sarperyn/FlowPDE"

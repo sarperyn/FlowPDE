@@ -14,6 +14,7 @@
   <a href="https://pypi.org/project/flowpde/"><img src="https://img.shields.io/pypi/pyversions/flowpde.svg" alt="Python versions"></a>
   <a href="https://github.com/sarperyn/FlowPDE/actions/workflows/tests.yml"><img src="https://github.com/sarperyn/FlowPDE/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
   <a href="https://github.com/sarperyn/FlowPDE/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://doi.org/10.5281/zenodo.23193614"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.23193614.svg" alt="DOI"></a>
 </p>
 
 <p align="center">
@@ -276,6 +277,7 @@ gives APA and BibTeX, or use:
   title   = {FlowPDE: Flow-based Generative Models for PDEs},
   author  = {Yurtseven, Sarper},
   url     = {https://github.com/sarperyn/FlowPDE},
+  doi     = {10.5281/zenodo.23193614},
   version = {0.2.0},
   year    = {2026},
 }

@@ -88,6 +88,7 @@ See the [Installation Guide](getting_started/installation.md) for details.
   title   = {FlowPDE: Flow-based Generative Models for PDEs},
   author  = {Yurtseven, Sarper},
   url     = {https://github.com/sarperyn/FlowPDE},
+  doi     = {10.5281/zenodo.23193614},
   version = {0.2.0},
   year    = {2026},
 }
