@@ -5,6 +5,7 @@ Defines how to interpolate between noise (x_0) and data (x_1)
 and compute the corresponding target velocity fields.
 """
 
+import math
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Tuple, Union
 
@@ -22,6 +23,9 @@ class PathInterpolant(ABC):
 
     The velocity is the derivative dx_t/dt that the model learns to predict.
     """
+
+    def get_config(self):
+        return {"type": type(self).__name__, **vars(self)}
 
     @abstractmethod
     def interpolate(self, x_0: Tensor, x_1: Tensor, t: Tensor) -> Tensor:
@@ -105,7 +109,7 @@ class OTConditionalPath(PathInterpolant):
     r"""
     Optimal-transport conditional flow path (Tong et al., 2023).
 
-    Two noise schedules are available, and both regress the *exact* derivative
+    Three noise schedules are available, and all regress the exact derivative
     of the path the model is shown.
 
     ``schedule='constant'`` (default) — the OT-CFM path of Tong et al.:
@@ -125,23 +129,28 @@ class OTConditionalPath(PathInterpolant):
     Here the tube width is time dependent, so the chord alone is *not* the
     derivative: the second term is required, or the model regresses a target
     that does not match its own input.  That term diverges as t approaches 0
-    or 1 (it is clamped, but stays large), which is why the constant schedule
-    is the default.
+    or 1. Bridge training therefore requires an explicitly interior uniform
+    time sampler; the derivative is never silently clamped.
 
-    With sigma = 0 both schedules reduce exactly to `LinearPath`.
+    ``schedule="smooth_bridge"`` uses width ``4*sigma*t*(1-t)`` and derivative
+    ``4*sigma*(1-2*t)``. It pins both endpoints and has bounded velocity.
+
+    A positive constant tube smooths both endpoint distributions. The objective
+    adjusts the Gaussian inference prior accordingly; the generated target is
+    the Gaussian-smoothed data distribution.
+
+    With sigma = 0 all schedules reduce exactly to `LinearPath`.
 
     Args:
         sigma: Noise scale (default: 0.0).
-        schedule: `'constant'` (default) or `'bridge'`.
+        schedule: `'constant'` (default), `'bridge'`, or `'smooth_bridge'`.
     """
 
-    _SCHEDULES = ("constant", "bridge")
-
-    # Floor on t(1-t) inside the bridge derivative, so the endpoints give a
-    # large-but-finite target instead of an infinity.
-    _BRIDGE_FLOOR = 1e-6
+    _SCHEDULES = ("constant", "bridge", "smooth_bridge")
 
     def __init__(self, sigma: float = 0.0, schedule: str = "constant"):
+        if not math.isfinite(sigma) or sigma < 0:
+            raise ValueError("sigma must be finite and nonnegative")
         if schedule not in self._SCHEDULES:
             raise ValueError(
                 f"Unknown schedule: '{schedule}'. "
@@ -158,6 +167,8 @@ class OTConditionalPath(PathInterpolant):
         r"""$\sigma_t$, the width of the conditional tube at time t."""
         if self.schedule == "constant":
             return self.sigma
+        if self.schedule == "smooth_bridge":
+            return 4 * self.sigma * t_expanded * (1 - t_expanded)
         return self.sigma * torch.sqrt(
             (t_expanded * (1 - t_expanded)).clamp(min=0.0)
         )
@@ -166,9 +177,11 @@ class OTConditionalPath(PathInterpolant):
         r"""$d\sigma_t/dt$, the term the chord alone leaves out."""
         if self.schedule == "constant":
             return 0.0
-        denominator = 2 * torch.sqrt(
-            (t_expanded * (1 - t_expanded)).clamp(min=self._BRIDGE_FLOOR)
-        )
+        if self.schedule == "smooth_bridge":
+            return 4 * self.sigma * (1 - 2 * t_expanded)
+        if ((t_expanded <= 0) | (t_expanded >= 1)).any():
+            raise ValueError("The bridge derivative requires 0 < t < 1; use smooth_bridge for bounded endpoints")
+        denominator = 2 * torch.sqrt(t_expanded * (1 - t_expanded))
         return self.sigma * (1 - 2 * t_expanded) / denominator
 
     def interpolate(
@@ -259,6 +272,12 @@ def get_path(path: Union[str, PathInterpolant], **kwargs: Any) -> PathInterpolan
     """
     if isinstance(path, PathInterpolant):
         return path
+
+    if isinstance(path, dict):
+        config = dict(path)
+        name = config.pop("type")
+        classes = {cls.__name__: cls for cls in _PATH_REGISTRY.values()}
+        return classes[name](**config)
 
     if path not in _PATH_REGISTRY:
         raise ValueError(

@@ -29,6 +29,7 @@ from .components import (
     SourceDistribution,
     TimeSampler,
     UniformSampler,
+    UniformSource,
     get_coupling,
     get_path,
     get_source,
@@ -65,6 +66,7 @@ __all__ = [
     # Source components
     'SourceDistribution',
     'GaussianSource',
+    'UniformSource',
     'BatchSource',
     'get_source',
 ]

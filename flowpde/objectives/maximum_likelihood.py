@@ -12,7 +12,8 @@ class MaximumLikelihoodObjective(nn.Module):
     r"""
     Negative log likelihood objective for `NeuralODEFlow`.
 
-    The objective uses the flow's exact log probability computation:
+    The objective uses the flow's log-density evaluation, with exact or
+    Hutchinson divergence as configured on the flow:
 
     $$\mathcal{L} = -\mathbb{E}[\log p_\theta(x \mid c)]$$
 
@@ -30,11 +31,19 @@ class MaximumLikelihoodObjective(nn.Module):
     ):
         super().__init__()
         self.flow = flow
-        self.model = flow.model
         self.regularization = regularization
         self.normalize_by_dim = normalize_by_dim
         self.target_key = target_key or flow.target_key
         self.condition_key = condition_key or flow.condition_key
+
+    @property
+    def model(self):
+        return self.flow.model
+
+    def restore_config(self, config):
+        self.flow.restore_config(config.get("flow", {}))
+        for name in ("regularization", "normalize_by_dim", "target_key", "condition_key"):
+            setattr(self, name, config[name])
 
     def compute_loss(
         self,
@@ -50,7 +59,7 @@ class MaximumLikelihoodObjective(nn.Module):
         )
         target_dim = x.flatten(start_dim=1).shape[1]
         self.flow.set_target_dim(target_dim)
-        log_px = self.flow.log_prob(x, condition)
+        log_px = self.flow.log_prob(x, condition, **kwargs)
         loss = -log_px.mean()
         if self.normalize_by_dim:
             loss = loss / target_dim

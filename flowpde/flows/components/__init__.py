@@ -24,6 +24,7 @@ from .sources import (
     BatchSource,
     GaussianSource,
     SourceDistribution,
+    UniformSource,
     get_source,
 )
 from .time_samplers import (
@@ -54,6 +55,7 @@ __all__ = [
     # Sources
     'SourceDistribution',
     'GaussianSource',
+    'UniformSource',
     'BatchSource',
     'get_source',
 ]

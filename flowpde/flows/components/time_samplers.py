@@ -5,6 +5,7 @@ Defines distributions for sampling time t ∈ [0, 1] during training.
 Different sampling strategies can improve training dynamics.
 """
 
+import math
 from abc import ABC, abstractmethod
 from typing import Any, Union
 
@@ -18,9 +19,12 @@ class TimeSampler(ABC):
 
     Different time distributions can affect training:
     - Uniform: Standard, simple
-    - Logit-normal: Concentrates samples near t=0 and t=1
+    - Logit-normal: Default parameters concentrate samples toward the middle
     - Beta: Flexible, can emphasize different regions
     """
+
+    def get_config(self):
+        return {"type": type(self).__name__, **vars(self)}
 
     @abstractmethod
     def sample(self, batch_size: int, device: torch.device) -> Tensor:
@@ -53,6 +57,8 @@ class UniformSampler(TimeSampler):
     """
 
     def __init__(self, low: float = 0.0, high: float = 1.0):
+        if not 0 <= low < high <= 1:
+            raise ValueError("Uniform time bounds must satisfy 0 <= low < high <= 1")
         self.low = low
         self.high = high
 
@@ -65,8 +71,8 @@ class LogitNormalSampler(TimeSampler):
     """
     Logit-normal time sampling: t = sigmoid(z) where z ~ N(mean, std²).
 
-    This distribution concentrates samples near t=0 and t=1, which can
-    help the model learn the behavior at the boundaries better.
+    With mean=0 and std=1 this distribution emphasizes the middle of the
+    interval. Larger std can shift mass toward the endpoints.
 
     Used in Rectified Flow and some diffusion models.
 
@@ -76,6 +82,8 @@ class LogitNormalSampler(TimeSampler):
     """
 
     def __init__(self, mean: float = 0.0, std: float = 1.0):
+        if not math.isfinite(mean) or not math.isfinite(std) or std <= 0:
+            raise ValueError("Logit-normal mean must be finite and std positive")
         self.mean = mean
         self.std = std
 
@@ -103,13 +111,16 @@ class BetaSampler(TimeSampler):
     def __init__(self, alpha: float = 1.0, beta: float = 1.0):
         self.alpha = alpha
         self.beta = beta
-        self._dist = torch.distributions.Beta(alpha, beta)
+        if not math.isfinite(alpha) or not math.isfinite(beta) or alpha <= 0 or beta <= 0:
+            raise ValueError("Beta parameters must be finite and positive")
 
     def sample(self, batch_size: int, device: torch.device) -> Tensor:
         """Sample t ~ Beta(alpha, beta)."""
         # Sample and move to device
-        t = self._dist.sample((batch_size, 1))
-        return t.to(device)
+        dist = torch.distributions.Beta(
+            torch.tensor(float(self.alpha), device=device), torch.tensor(float(self.beta), device=device)
+        )
+        return dist.sample((batch_size, 1))
 
 
 # =============================================================================
@@ -145,6 +156,12 @@ def get_time_sampler(
     """
     if isinstance(sampler, TimeSampler):
         return sampler
+
+    if isinstance(sampler, dict):
+        config = dict(sampler)
+        name = config.pop("type")
+        classes = {cls.__name__: cls for cls in _SAMPLER_REGISTRY.values()}
+        return classes[name](**config)
 
     if sampler not in _SAMPLER_REGISTRY:
         raise ValueError(

@@ -37,7 +37,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "torch>=2.0.0",
+    "torch>=2.3.0",
     "torchdiffeq>=0.2.4",
     "numpy",
     "scipy",

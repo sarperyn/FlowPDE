@@ -15,12 +15,17 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from flowpde.core.base_conditioner import NullConditioner
 from flowpde.flows import NeuralODEFlow
 from flowpde.flows.components import (
+    BatchSource,
     Coupling,
+    GaussianSource,
+    MiniBatchOTCoupling,
     PathInterpolant,
     SourceDistribution,
     TimeSampler,
+    UniformSampler,
     get_coupling,
     get_path,
     get_source,
@@ -83,14 +88,13 @@ class FlowMatchingObjective(nn.Module):
         path: Union[str, PathInterpolant] = "linear",
         time_sampler: Union[str, TimeSampler] = "uniform",
         coupling: Union[str, Coupling] = "independent",
-        source: Union[str, SourceDistribution] = "gaussian",
+        source: Optional[Union[str, SourceDistribution]] = None,
         sigma: float = 0.0,
         target_key: Optional[str] = None,
         condition_key: Optional[str] = None,
     ):
         super().__init__()
         self.flow = flow
-        self.model = flow.model
         self.target_key = target_key or flow.target_key
         self.condition_key = condition_key or flow.condition_key
 
@@ -103,14 +107,42 @@ class FlowMatchingObjective(nn.Module):
 
         self.time_sampler = get_time_sampler(time_sampler)
         self.coupling = get_coupling(coupling)
-        self.source = get_source(source)
-        self.sigma = sigma
+        self.source = flow.source if source is None else get_source(source)
+        self.sigma = getattr(self.path, "sigma", 0.0)
+        self._configure_prior()
+        if self.sigma > 0 and getattr(self.path, "schedule", None) == "bridge":
+            if not (isinstance(self.time_sampler, UniformSampler)
+                    and 0 < self.time_sampler.low < self.time_sampler.high < 1):
+                raise ValueError("bridge training requires UniformSampler with 0 < low < high < 1; use smooth_bridge for full-interval training")
 
         # Store string names for config
         self._path_name = path if isinstance(path, str) else path.__class__.__name__
         self._time_sampler_name = time_sampler if isinstance(time_sampler, str) else time_sampler.__class__.__name__
         self._coupling_name = coupling if isinstance(coupling, str) else coupling.__class__.__name__
-        self._source_name = source if isinstance(source, str) else source.__class__.__name__
+        self._source_name = type(self.source).__name__
+
+    @property
+    def model(self):
+        return self.flow.model
+
+    @property
+    def source(self):
+        return self._source
+
+    @source.setter
+    def source(self, source):
+        self._source = get_source(source)
+        self._source_name = type(self._source).__name__
+        if hasattr(self, "sigma"):
+            self._configure_prior()
+
+    def _configure_prior(self):
+        prior = self.source.fallback if isinstance(self.source, BatchSource) else self.source
+        if self.sigma > 0 and getattr(self.path, "schedule", None) == "constant":
+            if not isinstance(prior, GaussianSource):
+                raise ValueError("Constant tube noise currently requires a Gaussian source")
+            prior = GaussianSource((prior.std ** 2 + self.sigma ** 2) ** 0.5)
+        self.flow.source = prior
 
     def sample_base_distribution(
         self,
@@ -128,7 +160,7 @@ class FlowMatchingObjective(nn.Module):
                 `BatchSource` can read precomputed values from it.
                 Omitted at inference, where sources fall back to noise.
         """
-        return self.source(shape, device, batch)
+        return self.source(shape, device, batch, dtype=self.flow.model_dtype)
 
     @property
     def model_device(self) -> torch.device:
@@ -144,6 +176,13 @@ class FlowMatchingObjective(nn.Module):
         source = self.source
         key = getattr(source, "key", None)
         return key is not None and batch is not None and key in batch
+
+    def _couple(self, x_0, x_1, condition):
+        if isinstance(self.coupling, MiniBatchOTCoupling) and not isinstance(
+            getattr(self.model, "conditioner", None), NullConditioner
+        ):
+            return self.coupling.couple_conditioned(x_0, x_1, condition)
+        return self.coupling(x_0, x_1)
 
     def compute_loss(
         self,
@@ -191,16 +230,18 @@ class FlowMatchingObjective(nn.Module):
         # already fixes which x_0 goes with which x_1, so re-coupling here
         # would destroy it.
         if not self._source_defines_pairing(batch):
-            x_0, x_1 = self.coupling(x_0, x_1)
+            x_0, x_1 = self._couple(x_0, x_1, condition)
 
         # Sample time
-        t = self.time_sampler(batch_size, self.model_device)
+        t = self.time_sampler(batch_size, self.model_device).to(x_1)
 
         # Compute path interpolation and target velocity
         x_t, v_target = self.path(x_0, x_1, t)
 
         # Predict velocity with model
-        v_pred = self.model(x_t, condition, t)
+        v_pred = self.model(x_t, condition, t).flatten(start_dim=1)
+        if v_pred.shape != v_target.shape:
+            raise ValueError(f"Velocity shape {v_pred.shape} != target {v_target.shape}")
 
         # MSE loss
         loss = F.mse_loss(v_pred, v_target)
@@ -225,9 +266,9 @@ class FlowMatchingObjective(nn.Module):
 
         $$\\frac{dx}{dt} = v_\\theta(x_t, f, t), \\quad x_0 \\sim \\mathcal{N}(0, I)$$
 
-        The integration itself is `NeuralODEFlow.sample`; what this
-        adds is the starting point, drawn from the objective's configured
-        `source` so inference matches how the model was trained.
+        Sampling delegates to `NeuralODEFlow.sample`, whose prior is configured
+        by this objective. Constant tube noise broadens a Gaussian prior to
+        match the training path at t=0 and produces smoothed target data.
 
         Args:
             condition: Conditioning tensor (B, *)
@@ -249,18 +290,12 @@ class FlowMatchingObjective(nn.Module):
             Generated samples (B, dim)
             If return_trajectory: (samples, trajectory) where trajectory is (n_steps+1, B, dim)
         """
-        if x_init is None:
-            condition_flat = condition.flatten(start_dim=1).to(self.model_device)
-            dim = self.flow._resolve_target_dim(target_shape)
-            x_init = self.sample_base_distribution(
-                (condition_flat.shape[0], dim), self.model_device
-            )
-
         return self.flow.sample(
             condition=condition,
             n_steps=n_steps,
             solver=solver,
             x_init=x_init,
+            target_shape=target_shape,
             return_trajectory=return_trajectory,
             no_grad=no_grad,
             **solver_kwargs,
@@ -335,7 +370,7 @@ class FlowMatchingObjective(nn.Module):
         try:
             with torch.no_grad():
                 if mode == "trajectory":
-                    x_0 = self.sample_base_distribution(x_1.shape, self.model_device)
+                    x_0 = self.flow.sample_base_distribution(x_1.shape, self.model_device)
                     _, trajectory = self.sample(
                         condition=condition,
                         n_steps=n_steps,
@@ -364,11 +399,12 @@ class FlowMatchingObjective(nn.Module):
                     for index in indices:
                         z_t = trajectory[index]
                         t = time_grid[index].expand(batch_size, 1)
-                        v_pred = self.model(z_t, condition, t)
+                        v_pred = self.model(z_t, condition, t.to(z_t)).flatten(start_dim=1)
                         deviations.append((v_pred - chord).pow(2).sum(dim=1))
                 else:
-                    x_0 = self.sample_base_distribution(x_1.shape, self.model_device)
-                    x_0, x_1 = self.coupling(x_0, x_1)
+                    x_0 = self.sample_base_distribution(x_1.shape, self.model_device, batch)
+                    if not self._source_defines_pairing(batch):
+                        x_0, x_1 = self._couple(x_0, x_1, condition)
                     chord = x_1 - x_0
 
                     time_points = torch.linspace(
@@ -377,9 +413,9 @@ class FlowMatchingObjective(nn.Module):
                     deviations = []
                     for t_val in time_points:
                         t = t_val.expand(batch_size, 1)
-                        x_t, _ = self.path(x_0, x_1, t)
-                        v_pred = self.model(x_t, condition, t)
-                        deviations.append((v_pred - chord).pow(2).sum(dim=1))
+                        x_t, target_velocity = self.path(x_0, x_1, t)
+                        v_pred = self.model(x_t, condition, t).flatten(start_dim=1)
+                        deviations.append((v_pred - target_velocity).pow(2).sum(dim=1))
 
                 # Mean over time (the integral) and over the batch.
                 straightness = torch.stack(deviations, dim=0).mean().item()
@@ -406,10 +442,33 @@ class FlowMatchingObjective(nn.Module):
             'coupling': self._coupling_name,
             'source': self.source.get_config(),
             'sigma': self.sigma,
+            'components': {
+                'path': self.path.get_config(),
+                'time_sampler': self.time_sampler.get_config(),
+                'coupling': self.coupling.get_config(),
+                'source': self.source.get_config(),
+            },
             'target_key': self.target_key,
             'condition_key': self.condition_key,
             'model_type': self.model.__class__.__name__,
         }
+
+    def restore_config(self, config):
+        self.flow.restore_config(config.get("flow", {}))
+        components = config.get("components")
+        if components:
+            self.path = get_path(components["path"])
+            self.time_sampler = get_time_sampler(components["time_sampler"])
+            self.coupling = get_coupling(components["coupling"])
+            self.source = get_source(components["source"])
+            self.sigma = getattr(self.path, "sigma", 0.0)
+            self._path_name = type(self.path).__name__
+            self._time_sampler_name = type(self.time_sampler).__name__
+            self._coupling_name = type(self.coupling).__name__
+            self._source_name = type(self.source).__name__
+        self.target_key = config["target_key"]
+        self.condition_key = config["condition_key"]
+        self._configure_prior()
 
     def __repr__(self) -> str:
         return (
@@ -459,13 +518,13 @@ def create_flow_matching(
             'path': 'ot_conditional',
             'time_sampler': 'uniform',
             'coupling': 'independent',
-            'sigma': 0.01,
+            'sigma': 0.0,
         },
         'ot_cfm_coupled': {
             'path': 'ot_conditional',
             'time_sampler': 'uniform',
             'coupling': 'minibatch_ot',
-            'sigma': 0.01,
+            'sigma': 0.0,
         },
     }
 

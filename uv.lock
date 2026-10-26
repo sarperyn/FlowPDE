@@ -657,7 +657,7 @@ requires-dist = [
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.24" },
     { name = "numpy" },
     { name = "scipy" },
-    { name = "torch", specifier = ">=2.0.0" },
+    { name = "torch", specifier = ">=2.3.0" },
     { name = "torchdiffeq", specifier = ">=0.2.4" },
 ]
 provides-extras = ["data", "docs"]

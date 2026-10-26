@@ -22,6 +22,7 @@ Available sources:
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple, Union
 
@@ -43,6 +44,7 @@ class SourceDistribution(ABC):
         shape: Tuple[int, ...],
         device: torch.device,
         batch: Optional[Dict[str, Tensor]] = None,
+        *, dtype: Optional[torch.dtype] = None, generator: Optional[torch.Generator] = None,
     ) -> Tensor:
         """
         Draw $x_0$.
@@ -63,25 +65,31 @@ class SourceDistribution(ABC):
         shape: Tuple[int, ...],
         device: torch.device,
         batch: Optional[Dict[str, Tensor]] = None,
+        *, dtype: Optional[torch.dtype] = None, generator: Optional[torch.Generator] = None,
     ) -> Tensor:
-        return self.sample(shape, device, batch)
+        return self.sample(shape, device, batch, dtype=dtype, generator=generator)
 
     def get_config(self) -> Dict[str, Any]:
         return {"type": self.__class__.__name__}
+
+    def log_prob(self, x: Tensor) -> Tensor:
+        raise NotImplementedError(f"{type(self).__name__} does not define a density")
 
 
 class GaussianSource(SourceDistribution):
     """
     Standard Gaussian source, $x_0 \\sim \\mathcal{N}(0, \\sigma^2 I)$.
 
-    The default for flow matching, and what inference uses regardless of how
-    training was configured.
+    The default prior for flow matching. Its scale is shared by training,
+    flow sampling, evaluation, reflow pair generation, and likelihoods.
 
     Args:
         std: Standard deviation (default: 1.0).
     """
 
     def __init__(self, std: float = 1.0):
+        if not math.isfinite(std) or std <= 0:
+            raise ValueError("std must be finite and positive")
         self.std = std
 
     def sample(
@@ -89,8 +97,10 @@ class GaussianSource(SourceDistribution):
         shape: Tuple[int, ...],
         device: torch.device,
         batch: Optional[Dict[str, Tensor]] = None,
+        *, dtype: Optional[torch.dtype] = None, generator: Optional[torch.Generator] = None,
     ) -> Tensor:
-        noise = torch.randn(*shape, device=device)
+        noise = torch.randn(*shape, device=generator.device if generator else device,
+                            dtype=dtype, generator=generator).to(device)
         return noise * self.std if self.std != 1.0 else noise
 
     def get_config(self) -> Dict[str, Any]:
@@ -98,6 +108,23 @@ class GaussianSource(SourceDistribution):
 
     def __repr__(self) -> str:
         return f"GaussianSource(std={self.std})"
+
+    def log_prob(self, x: Tensor) -> Tensor:
+        return -0.5 * (x / self.std).square().sum(dim=1) - x.shape[1] * (
+            math.log(self.std) + 0.5 * math.log(2 * math.pi)
+        )
+
+
+class UniformSource(SourceDistribution):
+    """Uniform prior on [-1, 1] in each coordinate."""
+
+    def sample(self, shape, device, batch=None, *, dtype=None, generator=None):
+        return 2 * torch.rand(*shape, device=generator.device if generator else device,
+                              dtype=dtype, generator=generator).to(device) - 1
+
+    def log_prob(self, x: Tensor) -> Tensor:
+        inside = ((x >= -1) & (x <= 1)).all(dim=1)
+        return torch.where(inside, x.new_full((x.shape[0],), -x.shape[1] * math.log(2)), -torch.inf)
 
 
 class BatchSource(SourceDistribution):
@@ -110,8 +137,9 @@ class BatchSource(SourceDistribution):
 
     When the key is absent — most importantly during sampling, where there is
     no batch — the `fallback` source is used instead.  So a model trained
-    with `BatchSource` still samples from $\\mathcal{N}(0, I)$ at
-    inference, as it should.
+    with `BatchSource` uses its fallback prior at inference. When switching
+    a trained objective to precomputed pairs, pass its existing flow source
+    as the fallback to preserve the inference distribution.
 
     Args:
         key: Batch key holding the precomputed `x_0` (default: `'x_0'`).
@@ -137,10 +165,11 @@ class BatchSource(SourceDistribution):
         shape: Tuple[int, ...],
         device: torch.device,
         batch: Optional[Dict[str, Tensor]] = None,
+        *, dtype: Optional[torch.dtype] = None, generator: Optional[torch.Generator] = None,
     ) -> Tensor:
         if batch is None:
             # No batch at all: this is inference, so fall back silently.
-            return self.fallback.sample(shape, device, batch)
+            return self.fallback.sample(shape, device, batch, dtype=dtype, generator=generator)
 
         if self.key not in batch:
             if self.strict:
@@ -152,10 +181,10 @@ class BatchSource(SourceDistribution):
                     f"silently disable path straightening. Pass strict=False "
                     f"to allow falling back to {type(self.fallback).__name__}."
                 )
-            return self.fallback.sample(shape, device, batch)
+            return self.fallback.sample(shape, device, batch, dtype=dtype, generator=generator)
 
         x_0 = batch[self.key]
-        x_0 = x_0.flatten(start_dim=1).to(device)
+        x_0 = x_0.flatten(start_dim=1).to(device=device, dtype=dtype)
 
         if x_0.shape != tuple(shape):
             raise ValueError(
@@ -183,13 +212,14 @@ class BatchSource(SourceDistribution):
 _SOURCE_REGISTRY = {
     "gaussian": GaussianSource,
     "normal": GaussianSource,  # Alias
+    "uniform": UniformSource,
     "batch": BatchSource,
     "precomputed": BatchSource,  # Alias
 }
 
 
 def get_source(
-    source: Union[str, SourceDistribution], **kwargs: Any
+    source: Union[str, Dict[str, Any], SourceDistribution], **kwargs: Any
 ) -> SourceDistribution:
     """
     Get a source distribution by name, or pass an instance through.
@@ -210,6 +240,16 @@ def get_source(
     """
     if isinstance(source, SourceDistribution):
         return source
+
+    if isinstance(source, dict):
+        config = dict(source)
+        name = config.pop("type")
+        if name == "BatchSource" and "fallback" in config:
+            config["fallback"] = get_source(config["fallback"])
+        classes = {cls.__name__: cls for cls in _SOURCE_REGISTRY.values()}
+        if name not in classes:
+            raise ValueError(f"Unknown source type: {name}")
+        return classes[name](**config)
 
     if source not in _SOURCE_REGISTRY:
         raise ValueError(
