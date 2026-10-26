@@ -44,11 +44,24 @@ x_t = (1 - t) x_0 + t x_1, \qquad v_t = x_1 - x_0
 
 ### OT-Conditional Path
 
-Adds a noise bridge with variance vanishing at both endpoints:
+The default constant-width tube is
 
 \[
-x_t = t x_1 + (1 - t) x_0 + \sigma \sqrt{t(1-t)}\, \varepsilon, \qquad \varepsilon \sim \mathcal{N}(0, I)
+x_t=(1-t)x_0+t x_1+\sigma\varepsilon,
+\qquad v_t=x_1-x_0.
 \]
+
+With positive sigma, both endpoint distributions are Gaussian-smoothed. For a
+Gaussian source with standard deviation `s`, inference starts from standard
+deviation `sqrt(s*s + sigma*sigma)` and generates smoothed target data. All
+presets use `sigma=0` by default, preserving the exact endpoints.
+
+`OTConditionalPath(sigma=..., schedule="smooth_bridge")` instead uses tube width
+`4*sigma*t*(1-t)`, with bounded derivative `4*sigma*(1-2*t)` and exact endpoints.
+The Brownian-width `schedule="bridge"` remains available with its exact singular
+derivative. Training it requires an explicitly interior `UniformSampler`, for
+example `UniformSampler(0.01, 0.99)`; inference then extrapolates to the untrained
+endpoint intervals.
 
 !!! danger "Invariant"
     A path's `velocity()` must be the exact time derivative of its `interpolate()`. If
@@ -89,13 +102,17 @@ How noise and data are paired within a batch:
 
 - **Independent** — random pairing (standard)
 - **Mini-batch OT** — optimal transport within the mini-batch via
-  `scipy.optimize.linear_sum_assignment`, reducing crossing trajectories
+  `scipy.optimize.linear_sum_assignment`. Conditional objectives only exchange
+  noise within groups having identical PDE conditions, preserving the source
+  marginal for each condition. Singleton groups retain independent pairing.
+  `ot_cfm` selects the path; `ot_cfm_coupled` additionally selects this coupling.
 
 ## Sources
 
 The source distribution is a first-class component because reflow depends on it:
 
 - **`GaussianSource`** — draws fresh \(x_0 \sim \mathcal{N}(0, I)\) (default)
+- **`UniformSource`** — samples uniformly from `[-1, 1]` with a matching log density
 - **`BatchSource`** — consumes the \(x_0\) already present in the batch, which is what
   makes reflow correct
 
@@ -117,7 +134,7 @@ from flowpde.flows import BatchSource
 from flowpde.trainers import generate_reflow_pairs, reflow
 
 pairs = generate_reflow_pairs(objective, loader, n_steps=100)   # (z, ODE(z))
-objective.source = BatchSource()                               # consume that exact z
+objective.source = BatchSource(fallback=objective.flow.source)                               # consume that exact z
 
 # ...or run the whole loop:
 reflow(objective, loader,
@@ -162,12 +179,22 @@ At inference, integrate the learned ODE from noise to solution:
 samples = flow.sample(condition=f, n_steps=50, solver="dopri5")
 ```
 
+The flow owns the inference prior. Its sampler, `objective.sample`, validation,
+and reflow pair generation use the same distribution. Pass a `torch.Generator`
+to `flow.sample` or `objective.sample` for reproducible draws. Likelihoods use
+the same prior density; custom sources without a density raise explicitly.
+
 Adaptive solvers (`dopri5`, `dopri8`) adjust step size automatically and ignore
 `n_steps`; fixed-step solvers (`euler`, `rk4`) use it directly, which is what you vary
 when reporting accuracy against solver-step count.
 
 ## A Note on Uncertainty
 
-For the Poisson and Burgers **forward** maps, \(p(u \mid f)\) is a Dirac — the solution
+For the Poisson and fixed-viscosity Burgers **forward** maps, \(p(u \mid f)\) is a Dirac — the solution
 is deterministic. Sampler spread there is model error, not physical uncertainty. Put
 the UQ story on inverse problems, where the posterior is genuinely non-degenerate.
+
+Burgers datasets with varying diffusivity currently omit diffusivity from the
+condition. Their learned distribution is marginalized over viscosity; its spread
+can therefore include physical parameter uncertainty. Raw diffusivities remain
+available in the generated data.

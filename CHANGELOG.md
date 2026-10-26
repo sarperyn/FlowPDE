@@ -7,6 +7,30 @@ releases may contain breaking API changes; they will be listed here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Deterministic fixed-probe likelihood integration, zero-divergence fields,
+  log-space uniform densities, condition gradients through adjoint sampling,
+  and float64 sampling. ODE evaluations use deterministic model modes, including
+  adjoint recomputation, and restore the original module modes.
+- Unified inference priors across sampling, evaluation, reflow, and densities;
+  conditional OT only couples samples sharing a condition. Noisy paths now have
+  explicit endpoint semantics and consistent derivatives. OT presets default
+  to zero tube noise; smooth bounded endpoint-pinned tubes are available.
+- Spatial loss broadcasting, channel-first FiLM/LayerNorm, odd-grid ResNet
+  output sizes, 1D attention normalization, and vector Burgers initial channels.
+- Darcy uses convergence-aware preconditioned CG, certifies true residuals, and
+  rejects nonfinite data even when tolerance checking is disabled. Solution
+  fields remain float64; training converts them to the backbone dtype.
+- Spacing-aware 1D/2D/3D H1 metrics, sample-weighted validation, tied rank
+  correlations, singleton statistics, and complete versioned training checkpoints.
+
+### Changed
+
+- Fixed-step sampling retains only requested outputs; ensemble validation can
+  batch members with `ensemble_chunk_size`. `python -m benchmarks.audit` measures
+  CPU timing, matched-input accuracy, and retained output storage.
+
 ### Added
 
 - `flowpde.pretrained`: `load_pretrained` loads a model by registry name, local
