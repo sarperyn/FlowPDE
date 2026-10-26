@@ -17,20 +17,19 @@ realistic and challenging operator-learning problem.  This is the standard
 Darcy-flow benchmark used in FNO, DeepONet, and related literature.
 
 **Solver**
-    Second-order finite differences + fixed-step conjugate gradient
-    implemented via `jax.lax.scan`, making the whole pipeline
-    `jax.vmap`-compatible with no Python-level loops over samples.
+    Second-order finite differences on an endpoint-inclusive grid with zero
+    Dirichlet boundaries. Jacobi-preconditioned CG stops on convergence and
+    recomputes the true final residual. Solves and stored solution fields use
+    float64 so the reported tolerance is not invalidated by a float32 cast.
+    Training batches are converted to the model dtype by the flow.
 
 **κ generation**
-    Log-normal Gaussian random fields,
-
-    $$
-    \kappa = \exp(c \cdot g), \quad
-    g \sim \mathcal{N}\!\left(0,\,(\tau^2 I - \Delta)^{-\alpha}\right),
-    $$
-
-    ensuring $\kappa > 0$ everywhere (strict ellipticity) and matching
-    the GRF formulation used in the original FNO Darcy benchmark.
+    A discrete periodic spectral field is standardized per realization, scaled,
+    exponentiated, and clipped below by ``kappa_min``. Per-realization
+    standardization means this is not an exact Gaussian covariance prior or an
+    exact reproduction of the original FNO permeability distribution. Field
+    arrays are used as nodal values on the finite-difference grid; their prior
+    is specified on indices, not by a shared continuum coordinate generator.
 
 **f generation**
     Smooth fixed-cutoff Fourier-series source fields.
@@ -48,11 +47,17 @@ sample = dataset[0]
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import List, Literal, Optional
 
 import jax
 import jax.numpy as jnp
+
+try:
+    from jax import enable_x64
+except ImportError:  # JAX < 0.8
+    from jax.experimental import enable_x64
 import torch
 from torch.utils.data import Dataset
 
@@ -63,6 +68,7 @@ from .generator import (
     FourierFieldConfig,
     sample_fourier_fields,
 )
+from .utilities import jax_to_torch
 
 logger = logging.getLogger(__name__)
 
@@ -187,41 +193,19 @@ def _matvec_2d(u_flat, kappa, h: float, N_int: int):
     return Au.ravel()
 
 
-def _cg_scan(matvec, b, steps: int):
-    r"""Fixed-iteration conjugate gradient via `jax.lax.scan`.
+def _cg_scan(matvec, b, steps: int, diagonal=None):
+    """Jacobi-preconditioned CG with convergence stopping and true residual.
 
-    Runs exactly *steps* CG iterations with no convergence check, keeping the
-    computation graph fully static so that the function is compatible with
-    `jax.vmap`.  The operator *matvec* may close over `jax.vmap`-traced
-    values (e.g., a per-sample $\kappa$ field).
-
-    Args:
-        matvec: SPD linear operator $A : \mathbb{R}^n \to \mathbb{R}^n$.
-        b:      Right-hand side vector, shape `(n,)`.
-        steps:  Number of CG iterations.
-
-    Returns:
-        `(x, final_residual_sq)`: Approximate solution and
-        $\lVert r \rVert^2$ after the last iteration (scalar,
-        useful for diagnostics).
+    The diagonal is supplied by the finite-difference stencil. JAX's CG is
+    vmap-compatible and stops at convergence rather than consuming the full
+    iteration budget. Solves run in float64 to certify the default tolerance.
     """
-    x = jnp.zeros_like(b)
-    r = b
-    p = b
+    from jax.scipy.sparse.linalg import cg
 
-    def body(carry, _):
-        x, r, p = carry
-        Ap    = matvec(p)
-        rr    = jnp.dot(r, r)
-        alpha = rr / (jnp.dot(p, Ap) + 1e-30)
-        x     = x + alpha * p
-        r_new = r - alpha * Ap
-        beta  = jnp.dot(r_new, r_new) / (rr + 1e-30)
-        p_new = r_new + beta * p
-        return (x, r_new, p_new), jnp.dot(r_new, r_new)
-
-    (x, _, _), residuals = jax.lax.scan(body, (x, r, p), None, length=steps)
-    return x, residuals[-1]
+    x, _ = cg(matvec, b, tol=1e-9, atol=0.0, maxiter=steps,
+              M=None if diagonal is None else lambda residual: residual / diagonal)
+    residual = b - matvec(x)
+    return x, jnp.vdot(residual, residual).real
 
 
 def _relative_residual(residual_sq, b):
@@ -247,10 +231,13 @@ def _solve_one_1d(kappa, f, h: float, N: int, cg_steps: int):
     """
     f_int = f[0, 1:-1]                             # interior RHS, (N - 2,)
 
-    def matvec(u):
+    def matvec(u, diagonal_only=False):
+        if diagonal_only:
+            ki = kappa[0, 1:-1]
+            return (ki + 0.5 * (kappa[0, 2:] + kappa[0, :-2])) / h ** 2
         return _matvec_1d(u, kappa[0], h)
 
-    u_int, residual_sq = _cg_scan(matvec, f_int, cg_steps)
+    u_int, residual_sq = _cg_scan(matvec, f_int, cg_steps, matvec(f_int, diagonal_only=True))
     u_full   = jnp.concatenate([jnp.zeros(1), u_int, jnp.zeros(1)])
     return u_full[jnp.newaxis], _relative_residual(residual_sq, f_int)
 
@@ -269,10 +256,15 @@ def _solve_one_2d(kappa, f, h: float, N: int, cg_steps: int):
     N_int      = N - 2
     f_int      = f[0, 1:-1, 1:-1].ravel()          # interior RHS, (N_int²,)
 
-    def matvec(u_flat):
+    def matvec(u_flat, diagonal_only=False):
+        if diagonal_only:
+            k = kappa[0]
+            diagonal = (2 * k[1:-1, 1:-1] + 0.5 * (
+                k[2:, 1:-1] + k[:-2, 1:-1] + k[1:-1, 2:] + k[1:-1, :-2])) / h ** 2
+            return diagonal.ravel()
         return _matvec_2d(u_flat, kappa[0], h, N_int)
 
-    u_int_flat, residual_sq = _cg_scan(matvec, f_int, cg_steps)
+    u_int_flat, residual_sq = _cg_scan(matvec, f_int, cg_steps, matvec(f_int, diagonal_only=True))
     u_full        = jnp.pad(u_int_flat.reshape(N_int, N_int), 1)
     return u_full[jnp.newaxis], _relative_residual(residual_sq, f_int)
 
@@ -311,13 +303,9 @@ class DarcyConfig(GenerationConfig):
         f_cutoff: Fourier cutoff for the random source term.
         f_amplitude_min: Minimum per-sample amplitude scaling for f.
         f_amplitude_max: Maximum per-sample amplitude scaling for f.
-        cg_steps: Fixed number of conjugate-gradient iterations used to solve
-            the linear system.  The solver is unpreconditioned, so the count
-            needed grows with the grid and with the contrast in κ.  Measured
-            on a 64×64 grid at the default κ: 100 steps leaves a relative
-            residual of 2e-1 (the "solutions" are 20 % wrong), 500 leaves
-            8e-4, and 2000 converges to machine precision.  Do not lower this
-            for speed without checking `cg_tolerance` still passes.
+        cg_steps: Maximum Jacobi-preconditioned CG iterations. Solves stop
+            at convergence and return float64 solution fields. The final
+            diagnostic is recomputed from b - A u, not the recursive residual.
         cg_tolerance: Largest acceptable CG relative residual, checked over
             every generated sample.  `generate()` raises if it is exceeded,
             so an under-converged dataset fails loudly instead of quietly
@@ -576,6 +564,10 @@ class DarcyGenerator(ExponaxDatasetGenerator):
             )
 
         # Vertex-centred grid: N points on [0, L], spacing h = L/(N-1)
+        if N < 3 or cfg.cg_steps < 1:
+            raise ValueError("Darcy requires at least 3 grid points and positive cg_steps")
+        if not math.isfinite(cfg.kappa_scale) or not math.isfinite(cfg.kappa_min) or cfg.kappa_min <= 0:
+            raise ValueError("kappa_scale must be finite and kappa_min positive and finite")
         h = L / (N - 1)
 
         # Split all keys upfront for full reproducibility
@@ -596,6 +588,8 @@ class DarcyGenerator(ExponaxDatasetGenerator):
             return kappa[jnp.newaxis]               # (1, *spatial)
 
         kappas = jax.vmap(make_kappa)(kappa_sample_keys)   # (n, 1, *spatial)
+        if not bool(jnp.isfinite(kappas).all()):
+            raise RuntimeError("Darcy coefficient generation produced nonfinite values")
 
         # ── 2. f fields: smooth fixed-cutoff Fourier series ───────────────
         sources = sample_fourier_fields(
@@ -618,10 +612,18 @@ class DarcyGenerator(ExponaxDatasetGenerator):
             def solve_one(kappa, f):
                 return _solve_one_2d(kappa, f, h, N, cfg.cg_steps)
 
-        solutions, cg_residuals = jax.vmap(solve_one)(kappas, sources)
+        # Keep generated ground truth in float64: casting it back to float32
+        # can invalidate a strict residual tolerance on fine elliptic grids.
+        with enable_x64(True):
+            solutions, cg_residuals = jax.vmap(solve_one)(
+                kappas.astype(jnp.float64), sources.astype(jnp.float64)
+            )
+            worst_residual = float(jnp.max(cg_residuals))
+            mean_residual = float(jnp.mean(cg_residuals))
         # solutions: (n, 1, *spatial);  cg_residuals: (n,)
 
-        worst_residual = float(jnp.max(cg_residuals))
+        if not math.isfinite(worst_residual):
+            raise RuntimeError("Darcy CG produced nonfinite coefficients, solutions, or residuals")
         if cfg.cg_tolerance is not None and worst_residual > cfg.cg_tolerance:
             raise RuntimeError(
                 f"Darcy CG did not converge: worst relative residual "
@@ -629,7 +631,7 @@ class DarcyGenerator(ExponaxDatasetGenerator):
                 f"cg_tolerance={cfg.cg_tolerance:.1e} after "
                 f"{cfg.cg_steps} iterations. These solutions do not solve the "
                 f"PDE and must not be used as ground truth. Raise cg_steps "
-                f"(unpreconditioned CG needs more of them as the grid or the "
+                f"(preconditioned CG may need more of them as the grid or the "
                 f"contrast in kappa grows), or relax cg_tolerance if you "
                 f"genuinely accept this error level."
             )
@@ -638,8 +640,8 @@ class DarcyGenerator(ExponaxDatasetGenerator):
         data = self.to_torch_data({
             'kappa': kappas,
             'source': sources,
-            'solution': solutions,
         })
+        data['solution'] = jax_to_torch(solutions, device=cfg.torch_device, dtype=torch.float64)
         augmentation = self.apply_observation_augmentation(
             data,
             observation_key='solution',
@@ -664,8 +666,9 @@ class DarcyGenerator(ExponaxDatasetGenerator):
             extra_stats=augmentation.pop("clean_stats", None),
             extra_metadata={
                 **augmentation,
+                "grid": {"spacing": h, "periodic": False, "endpoint_included": True},
                 "cg_residual_max": worst_residual,
-                "cg_residual_mean": float(jnp.mean(cg_residuals)),
+                "cg_residual_mean": mean_residual,
                 "cg_steps": cfg.cg_steps,
             },
         )

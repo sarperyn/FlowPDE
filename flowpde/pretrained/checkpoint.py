@@ -40,7 +40,7 @@ from .recipe import build_objective, validate_recipe
 logger = logging.getLogger(__name__)
 
 FORMAT = "flowpde-pretrained"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 # Saving
@@ -117,6 +117,7 @@ def save_pretrained(
         "format_version": FORMAT_VERSION,
         "flowpde_version": flowpde.__version__,
         "recipe": _plain(recipe),
+        "objective_config": _plain(objective.get_config()),
         "model_state": state,
         "target_shape": [int(s) for s in target_shape],
         "normalizer_state": _plain(normalizer.state_dict()) if normalizer is not None else None,
@@ -270,6 +271,8 @@ def load_pretrained(
     _check_format(checkpoint, path)
 
     objective = build_objective(checkpoint["recipe"])
+    if "objective_config" in checkpoint:
+        objective.restore_config(checkpoint["objective_config"])
     objective.model.load_state_dict(checkpoint["model_state"])
     target_shape = list(checkpoint["target_shape"])
     dim = 1

@@ -6,6 +6,7 @@ Provides a PyTorch Dataset that wraps data generated directly from
 Exponax solvers and IC generators.
 """
 
+import math
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Literal, Optional
 
@@ -40,12 +41,22 @@ class GenerationConfig:
     """
     num_spatial_dims: int = 2
     num_points: int = 64
-    domain_extent: float = 10.0
+    domain_extent: float = 1.0
     num_samples: int = 10000
     seed: int = 42
     torch_device: str = 'cpu'
     obs_noise_std: float = 0.0
     obs_mask_fraction: float = 1.0
+
+    def __post_init__(self):
+        if self.num_spatial_dims < 1 or self.num_points < 2 or self.num_samples < 1:
+            raise ValueError("Spatial dimensions, grid size, and sample count must be positive")
+        if not math.isfinite(self.domain_extent) or self.domain_extent <= 0:
+            raise ValueError("domain_extent must be finite and positive")
+        if not 0 <= self.obs_mask_fraction <= 1:
+            raise ValueError("obs_mask_fraction must lie in [0, 1]")
+        if not math.isfinite(self.obs_noise_std) or self.obs_noise_std < 0:
+            raise ValueError("obs_noise_std must be finite and nonnegative")
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

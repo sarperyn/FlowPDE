@@ -269,3 +269,58 @@ def test_burgers_2d_channel_contract(single_channel, channels):
     assert dataset.data["initial"].shape == (2, channels, 8, 8)
     assert dataset.data["final"].shape == dataset.data["initial"].shape
     assert torch.isfinite(dataset.data["final"]).all()
+
+
+@pytest.mark.parametrize("dimension", [1, 2])
+def test_darcy_manufactured_solution_and_true_residual(dimension):
+    import jax.numpy as jnp
+
+    from flowpde.datasets.exponax.darcy import (
+        _matvec_1d,
+        _matvec_2d,
+        _solve_one_1d,
+        _solve_one_2d,
+        enable_x64,
+    )
+
+    n, h = 17, 1 / 16
+    with enable_x64(True):
+        axis = jnp.sin(jnp.pi * jnp.linspace(0, 1, n))
+        if dimension == 1:
+            expected = axis.at[0].set(0).at[-1].set(0)
+            kappa = jnp.ones((1, n))
+            rhs = jnp.pad(_matvec_1d(expected[1:-1], kappa[0], h), 1)[None]
+            actual, residual = _solve_one_1d(kappa, rhs, h, n, 100)
+        else:
+            expected = axis[:, None] * axis[None, :]
+            expected = expected.at[0, :].set(0).at[-1, :].set(0).at[:, 0].set(0).at[:, -1].set(0)
+            kappa = jnp.ones((1, n, n))
+            rhs = jnp.pad(_matvec_2d(expected[1:-1, 1:-1].ravel(), kappa[0], h, n - 2).reshape(n - 2, n - 2), 1)[None]
+            actual, residual = _solve_one_2d(kappa, rhs, h, n, 100)
+        assert float(jnp.max(jnp.abs(actual[0] - expected))) < 1e-9
+        assert float(residual) < 1e-9
+
+
+def test_darcy_never_accepts_nonfinite_data_even_without_tolerance():
+    with pytest.raises(RuntimeError, match="nonfinite"):
+        DarcyGenerator(num_points=8, num_samples=2, kappa_scale=1000,
+                       cg_steps=10, cg_tolerance=None).generate()
+
+
+def test_darcy_residual_describes_the_stored_solution():
+    dataset = DarcyGenerator(num_points=16, num_samples=2).generate()
+    k = dataset.data["kappa"].double()
+    u, f = dataset.data["solution"], dataset.data["source"].double()
+    h = 1 / 15
+    center = k[..., 1:-1, 1:-1]
+    right = (center + k[..., 2:, 1:-1]) / 2
+    left = (center + k[..., :-2, 1:-1]) / 2
+    up = (center + k[..., 1:-1, 2:]) / 2
+    down = (center + k[..., 1:-1, :-2]) / 2
+    au = ((right + left + up + down) * u[..., 1:-1, 1:-1]
+          - right * u[..., 2:, 1:-1] - left * u[..., :-2, 1:-1]
+          - up * u[..., 1:-1, 2:] - down * u[..., 1:-1, :-2]) / h ** 2
+    b = f[..., 1:-1, 1:-1]
+    residual = ((au - b).flatten(1).norm(dim=1) / b.flatten(1).norm(dim=1)).max().item()
+    assert residual < dataset.get_config()["cg_tolerance"]
+    assert residual == pytest.approx(dataset.metadata["cg_residual_max"], abs=1e-12)

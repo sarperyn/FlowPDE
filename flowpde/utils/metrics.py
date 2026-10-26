@@ -21,7 +21,7 @@ comparable across PDEs with very different solution magnitudes.
 
 Secondary metrics
 -----------------
-- **H1 semi-norm error**: penalises gradient mismatch on top of value mismatch.
+- **H1 norm error**: penalises gradient mismatch on top of value mismatch.
     Meaningful for smooth PDEs (Poisson, Darcy) where solutions are in $H^1$.
   Discretised via first-order finite differences.
 - **MAE** (Mean Absolute Error): complementary to L2, less sensitive to
@@ -54,6 +54,7 @@ results = em(pred, target)   # dict
 
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional
 
 import torch
@@ -161,62 +162,40 @@ def relative_max_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tenso
         Scalar tensor — mean relative max error over the batch.
     """
     max_err    = (pred - target).abs().flatten(start_dim=1).max(dim=1).values
-    target_std = target.flatten(start_dim=1).std(dim=1).clamp(min=eps)
+    flat = target.flatten(start_dim=1)
+    target_std = flat.std(dim=1, correction=0 if flat.shape[1] == 1 else 1).clamp(min=eps)
     return (max_err / target_std).mean()
 
 
-def h1_error(pred: Tensor, target: Tensor, eps: float = 1e-8) -> Tensor:
-    r"""Relative H¹ semi-norm error for 2-D spatial fields.
+def h1_error(pred: Tensor, target: Tensor, eps: float = 1e-8,
+             spacing=None, periodic: bool = False, seminorm: bool = False) -> Tensor:
+    """Relative discrete H1 norm on channel-first 1D/2D/3D fields.
 
-    The H¹ semi-norm adds a gradient penalty on top of the L2 value
-    mismatch.  It is the standard "H1 loss" used in the `neuraloperator`
-    library and is meaningful for smooth PDEs (Poisson, Darcy) whose
-    solutions are in the Sobolev space H¹.
-
-    Gradients are estimated with first-order finite differences along each
-    spatial axis.  For **1-D** inputs the function falls back to plain
-    relative L2 error (only one spatial axis, same as L2 loss for
-    1-D problems where the FD gradient information is less informative).
-
-    $$
-    \varepsilon_{H^1} = \frac{1}{N} \sum_{i=1}^{N}
-        \frac{\lVert \hat{u}_i - u_i \rVert_{H^1}}
-              {\lVert u_i \rVert_{H^1} + \epsilon}
-    $$
-
-    where
-
-    $$
-    \lVert v \rVert_{H^1}^2
-        = \lVert v \rVert_2^2
-        + \sum_{d} \lVert \partial_d v \rVert_2^2.
-    $$
-
-    Args:
-        pred:   Predicted tensor, shape `(B, C, *spatial)`.  Must be at
-                least 2-D in space for the gradient term to be computed.
-        target: Ground-truth tensor, same shape.
-        eps:    Stability constant.
-
-    Returns:
-        Scalar tensor — mean relative H¹ error over the batch.
+    Supply physical grid spacing for non-unit domains. By default each axis
+    spans a unit interval, including both endpoints unless periodic=True.
+    Forward differences include the wrap edge on periodic grids. Set
+    seminorm=True to score derivatives alone.
     """
-    if pred.ndim < 4:
-        # 1-D spatial: fall back to relative L2
-        return relative_l2_error(pred, target, eps=eps)
+    if pred.shape != target.shape or pred.ndim < 3:
+        raise ValueError("H1 requires matching (B, C, *spatial) fields")
+    sizes = pred.shape[2:]
+    if spacing is None:
+        spacing = [1.0 / (n if periodic else max(n - 1, 1)) for n in sizes]
+    elif isinstance(spacing, (float, int)):
+        spacing = [spacing] * len(sizes)
+    if len(spacing) != len(sizes) or any(not math.isfinite(h) or h <= 0 for h in spacing):
+        raise ValueError("spacing must be positive with one value per spatial axis")
 
-    def _h1_norm_sq(x: Tensor) -> Tensor:
-        """H¹ semi-norm² per sample: shape (B,)."""
-        val_sq = x.pow(2).flatten(start_dim=1).sum(dim=1)
-        grad_sq = torch.zeros_like(val_sq)
-        # Finite differences along height (dim -2) and width (dim -1)
-        grad_sq = grad_sq + (x[..., 1:, :] - x[..., :-1, :]).pow(2).flatten(start_dim=1).sum(dim=1)
-        grad_sq = grad_sq + (x[..., :, 1:] - x[..., :, :-1]).pow(2).flatten(start_dim=1).sum(dim=1)
-        return val_sq + grad_sq
+    def norm_sq(x):
+        value = x.flatten(1).square().mean(1) if not seminorm else x.new_zeros(x.shape[0])
+        for axis, (size, h) in enumerate(zip(sizes, spacing, strict=True), 2):
+            if size < 2:
+                continue
+            diff = x.roll(-1, axis) - x if periodic else x.diff(dim=axis)
+            value = value + (diff / h).flatten(1).square().mean(1)
+        return value
 
-    diff_h1   = _h1_norm_sq(pred - target).sqrt()
-    target_h1 = _h1_norm_sq(target).sqrt().clamp(min=eps)
-    return (diff_h1 / target_h1).mean()
+    return (norm_sq(pred - target).sqrt() / norm_sq(target).sqrt().clamp(min=eps)).mean()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -264,7 +243,7 @@ def ensemble_relative_l2(
 
     # Normalised sample spread: std across ensemble members, averaged per sample
     target_norm = _norm(target, p=2.0).clamp(min=eps)          # (B,)
-    spread_per_sample = stacked.std(dim=0)                       # (B, C, *spatial)
+    spread_per_sample = stacked.std(dim=0, correction=0 if len(preds) == 1 else 1)                       # (B, C, *spatial)
     spread_norm = _norm(spread_per_sample, p=2.0) / target_norm  # (B,)
     sample_spread = spread_norm.mean()
 
@@ -310,7 +289,9 @@ class EvalMetrics:
 
     _ALL = ("rel_l2", "h1", "mse", "mae", "rel_max")
 
-    def __init__(self, metrics: Optional[List[str]] = None):
+    def __init__(self, metrics: Optional[List[str]] = None, *, spacing=None, periodic=False):
+        self.spacing = spacing
+        self.periodic = periodic
         if metrics is None:
             self.metrics = list(self._ALL)
         else:
@@ -340,7 +321,8 @@ class EvalMetrics:
             "rel_max": relative_max_error,
         }
         for name in self.metrics:
-            results[name] = fns[name](pred, target).item()
+            results[name] = (h1_error(pred, target, spacing=self.spacing, periodic=self.periodic)
+                             if name == "h1" else fns[name](pred, target)).item()
         return results
 
     def __repr__(self) -> str:

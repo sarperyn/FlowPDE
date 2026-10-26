@@ -27,6 +27,7 @@ several fields) before computing errors.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import torch
@@ -61,6 +62,8 @@ class FieldNormalizer:
         eps: float = 1e-8,
     ):
         self.eps = eps
+        if not math.isfinite(eps) or eps <= 0:
+            raise ValueError("eps must be finite and positive")
         self.stats: Dict[str, Dict[str, float]] = {}
         if stats:
             for name, field_stats in stats.items():
@@ -130,13 +133,15 @@ class FieldNormalizer:
     ) -> "FieldNormalizer":
         """Fit directly from raw tensors, one entry per field."""
         stats = {
-            name: {"mean": tensor.mean().item(), "std": tensor.std().item()}
+            name: {"mean": tensor.mean().item(), "std": tensor.std(correction=0).item()}
             for name, tensor in tensors.items()
         }
         return cls(stats, eps=eps)
 
     def add_field(self, name: str, mean: float, std: float) -> None:
         """Register statistics for a single field."""
+        if not math.isfinite(mean) or not math.isfinite(std) or std < 0:
+            raise ValueError(f"Field {name!r} requires finite mean and nonnegative finite std")
         self.stats[name] = {"mean": float(mean), "std": max(float(std), self.eps)}
 
     # Application
@@ -213,6 +218,8 @@ class FieldNormalizer:
     def load_state_dict(self, state: Dict[str, object]) -> "FieldNormalizer":
         """Restore statistics saved by `state_dict()`."""
         self.eps = float(state.get("eps", 1e-8))
+        if not math.isfinite(self.eps) or self.eps <= 0:
+            raise ValueError("eps must be finite and positive")
         self.stats = {}
         for name, field_stats in state["stats"].items():
             self.add_field(name, field_stats["mean"], field_stats["std"])

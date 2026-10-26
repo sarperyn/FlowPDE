@@ -90,6 +90,9 @@ class FlowEvaluator:
         metrics: Optional[List[str]] = None,
         seed: int = 0,
         ensemble_size: int = 1,
+        ensemble_chunk_size: int = 4,
+        spacing=None,
+        periodic: Optional[bool] = None,
         **solver_kwargs: Any,
     ):
         self.objective = objective
@@ -101,8 +104,19 @@ class FlowEvaluator:
         self.target_fields = list(target_fields) if target_fields else None
         self.seed = seed
         self.ensemble_size = max(1, int(ensemble_size))
+        if ensemble_chunk_size < 1:
+            raise ValueError("ensemble_chunk_size must be positive")
+        self.ensemble_chunk_size = int(ensemble_chunk_size)
         self.solver_kwargs = solver_kwargs
-        self.metrics = EvalMetrics(metrics or ["rel_l2"])
+        dataset = getattr(data_loader, "dataset", None)
+        while dataset is not None and not hasattr(dataset, "metadata") and hasattr(dataset, "dataset"):
+            dataset = dataset.dataset
+        grid = getattr(dataset, "metadata", {}).get("grid", {})
+        if spacing is None:
+            spacing = grid.get("spacing")
+        if periodic is None:
+            periodic = grid.get("periodic", False)
+        self.metrics = EvalMetrics(metrics or ["rel_l2"], spacing=spacing, periodic=periodic)
 
         self.target_key = target_key or getattr(objective, "target_key", "target")
         self.condition_key = condition_key or getattr(
@@ -153,7 +167,7 @@ class FlowEvaluator:
         self.objective.eval()
 
         totals: Dict[str, float] = {}
-        num_batches = 0
+        num_samples = 0
 
         try:
             for batch_idx, batch in enumerate(self.data_loader):
@@ -168,25 +182,28 @@ class FlowEvaluator:
 
                 # Fixed noise per (batch, member) so successive validation
                 # calls differ only by the model, never by the draw.
-                members = []
+                flow = getattr(self.objective, "flow", self.objective)
+                noise = []
                 for member in range(self.ensemble_size):
                     generator = torch.Generator().manual_seed(
                         self.seed + 1009 * batch_idx + 31 * member
                     )
-                    x_init = torch.randn(
-                        batch_size, flat_dim, generator=generator
-                    ).to(device)
+                    if hasattr(flow, "sample_base_distribution"):
+                        initial = flow.sample_base_distribution((batch_size, flat_dim), device, generator=generator)
+                    else:
+                        initial = torch.randn(batch_size, flat_dim, generator=generator).to(device)
+                    noise.append(initial)
 
+                members = []
+                for start in range(0, self.ensemble_size, self.ensemble_chunk_size):
+                    chunk = noise[start:start + self.ensemble_chunk_size]
+                    repeated = condition.repeat((len(chunk),) + (1,) * (condition.ndim - 1))
                     samples = sampler(
-                        condition=condition,
-                        n_steps=self.n_steps,
-                        solver=self.solver,
-                        x_init=x_init,
-                        **self.solver_kwargs,
+                        condition=repeated, n_steps=self.n_steps, solver=self.solver,
+                        x_init=torch.cat(chunk), **self.solver_kwargs,
                     )
-                    members.append(samples.reshape(batch_size, *target_shape))
-
-                stacked = torch.stack(members, dim=0)      # (E, B, C, *spatial)
+                    members.append(samples.reshape(len(chunk), batch_size, *target_shape))
+                stacked = torch.cat(members, dim=0)
                 prediction = stacked.mean(dim=0)
 
                 prediction = self._denormalize(prediction)
@@ -199,27 +216,27 @@ class FlowEvaluator:
                         stacked.reshape(-1, *target_shape)
                     ).reshape(self.ensemble_size, batch_size, *target_shape)
                     spread = physical.std(dim=0)
-                    scale = target_physical.abs().mean().clamp(min=1e-8)
+                    scale = target_physical.abs().flatten(1).mean(1).clamp(min=1e-8)
                     # Every configured metric already scores the ensemble
                     # mean, so alias them all rather than assuming 'rel_l2'
                     # is among them.
                     for name in list(batch_metrics):
                         batch_metrics[f"mean_{name}"] = batch_metrics[name]
                     batch_metrics["sample_spread"] = (
-                        spread.mean() / scale
+                        (spread.flatten(1).mean(1) / scale).mean()
                     ).item()
 
                 for name, value in batch_metrics.items():
-                    totals[name] = totals.get(name, 0.0) + value
-                num_batches += 1
+                    totals[name] = totals.get(name, 0.0) + value * batch_size
+                num_samples += batch_size
         finally:
             if was_training:
                 self.objective.train()
 
-        if num_batches == 0:
+        if num_samples == 0:
             raise RuntimeError("Validation loader produced no batches.")
 
-        return {name: value / num_batches for name, value in totals.items()}
+        return {name: value / num_samples for name, value in totals.items()}
 
     def __repr__(self) -> str:
         return (
