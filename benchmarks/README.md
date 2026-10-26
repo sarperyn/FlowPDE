@@ -87,3 +87,11 @@ settings, `problem` (and `inverse_mode` for Darcy), and any changes to the
 shared model, training or evaluation defaults. Give it a `quick` override
 that fits a laptop. The smoke scale is derived automatically, and
 `tests/test_benchmarks.py` runs every task at that scale.
+
+## Audit microbenchmarks
+
+Run `python -m benchmarks.audit` for matched-input CPU measurements of endpoint-only
+sampling, ensemble batching, and preconditioned Darcy CG. The script checks numerical
+agreement, excludes compilation from timings, and reports both retained output storage
+and incremental peak tensor allocation from the PyTorch CPU memory profiler. These are
+microbenchmarks, not end-to-end training speedups or GPU measurements.
