@@ -145,6 +145,13 @@ def get_num_groups(channels: int, preferred: int = 32) -> int:
     return 1
 
 
+class ChannelLayerNorm(nn.LayerNorm):
+    """LayerNorm over channels for channel-first convolutional features."""
+
+    def forward(self, x: Tensor) -> Tensor:
+        return super().forward(x.movedim(1, -1)).movedim(-1, 1)
+
+
 def get_norm_layer(
     norm_type: str,
     num_features: int,
@@ -182,7 +189,7 @@ def get_norm_layer(
             return nn.InstanceNorm2d(num_features, **kwargs)
 
     elif norm_type == "layer":
-        return nn.LayerNorm(num_features, **kwargs)
+        return ChannelLayerNorm(num_features, **kwargs)
 
     elif norm_type == "none":
         return nn.Identity()

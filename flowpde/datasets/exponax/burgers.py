@@ -126,15 +126,17 @@ class BurgersGenerator(ExponaxDatasetGenerator):
             min_value=cfg.diffusivity_min,
             max_value=cfg.diffusivity_max,
         )
+        channels = 1 if cfg.single_channel else cfg.num_spatial_dims
         ics = sample_sine_fields(
             field_key,
-            n=n,
+            n=n * channels,
             num_spatial_dims=cfg.num_spatial_dims,
             num_points=cfg.num_points,
             domain_extent=cfg.domain_extent,
             num_terms=cfg.ic_num_terms,
             max_mode=cfg.ic_max_mode,
         )
+        ics = ics.reshape(n, channels, *([cfg.num_points] * cfg.num_spatial_dims))
 
         # --- Time integration (per-sample ν) ---
         # The stepper is constructed inside the vmapped function so that JAX

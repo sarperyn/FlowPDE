@@ -53,6 +53,8 @@ class ConvBlock(nn.Module):
         super().__init__()
 
         Conv = get_conv_layer(spatial_dim)
+        if kernel_size < 1 or kernel_size % 2 == 0:
+            raise ValueError("kernel_size must be a positive odd integer")
         padding = kernel_size // 2
 
         self.block = nn.Sequential(
@@ -88,6 +90,7 @@ class AttentionBlock(nn.Module):
         channels: int,
         num_heads: int = 4,
         norm_type: str = "group",
+        spatial_dim: int = 2,
     ):
         super().__init__()
 
@@ -96,7 +99,7 @@ class AttentionBlock(nn.Module):
         while channels % self.num_heads != 0 and self.num_heads > 1:
             self.num_heads -= 1
 
-        self.norm = get_norm_layer(norm_type, channels, spatial_dim=2)
+        self.norm = get_norm_layer(norm_type, channels, spatial_dim=spatial_dim)
         self.attn = nn.MultiheadAttention(
             channels,
             num_heads=self.num_heads,
@@ -224,7 +227,7 @@ class UNet(nn.Module):
         self.time_proj_bottleneck = nn.Linear(time_emb_dim, bottleneck_ch)
 
         if use_attention:
-            self.bottleneck_attn = AttentionBlock(bottleneck_ch, norm_type=norm_type)
+            self.bottleneck_attn = AttentionBlock(bottleneck_ch, norm_type=norm_type, spatial_dim=spatial_dim)
         else:
             self.bottleneck_attn = None
 

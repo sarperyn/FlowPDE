@@ -74,6 +74,8 @@ class ResidualBlock(nn.Module):
     ):
         super().__init__()
         self.spatial_dim = spatial_dim
+        if kernel_size < 1 or kernel_size % 2 == 0:
+            raise ValueError("kernel_size must be a positive odd integer")
         padding = kernel_size // 2
 
         Conv = get_conv_layer(spatial_dim)

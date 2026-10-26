@@ -260,3 +260,12 @@ def test_input_fields_account_for_the_mask_channel():
     )
     assert plain.input_fields == ["kappa", "source"]
     assert len(plain.input_fields) == plain[0]["input"].shape[0]
+
+
+@pytest.mark.parametrize("single_channel,channels", [(False, 2), (True, 1)])
+def test_burgers_2d_channel_contract(single_channel, channels):
+    dataset = BurgersGenerator(num_spatial_dims=2, num_points=8, num_samples=2,
+                               num_steps=2, single_channel=single_channel).generate()
+    assert dataset.data["initial"].shape == (2, channels, 8, 8)
+    assert dataset.data["final"].shape == dataset.data["initial"].shape
+    assert torch.isfinite(dataset.data["final"]).all()

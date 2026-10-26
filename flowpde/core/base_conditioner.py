@@ -195,12 +195,10 @@ class FiLMConditioner(BaseConditioner):
         scale, shift = params.chunk(2, dim=1)    # Each (batch_size, feature_dim)
 
         # Reshape for broadcasting if x is spatial
-        if x.dim() == 4:  # (B, C, H, W)
-            scale = scale.view(scale.shape[0], scale.shape[1], 1, 1)
-            shift = shift.view(shift.shape[0], shift.shape[1], 1, 1)
-        elif x.dim() == 3:  # (B, L, C)
-            scale = scale.unsqueeze(1)
-            shift = shift.unsqueeze(1)
+        if x.ndim > 2:  # channel-first PDE fields: (B, C, *spatial)
+            shape = (x.shape[0], scale.shape[1]) + (1,) * (x.ndim - 2)
+            scale = scale.reshape(shape)
+            shift = shift.reshape(shape)
 
         # Apply FiLM as (1 + scale), the standard formulation: the
         # generator starts near zero, so the block starts as the identity

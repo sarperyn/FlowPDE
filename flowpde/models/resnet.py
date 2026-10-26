@@ -8,6 +8,7 @@ Unlike classification ResNets, this preserves spatial resolution
 
 from typing import Any, List, Optional
 
+import torch.nn.functional as F
 from torch import Tensor, nn
 
 from flowpde.core.base_conditioner import (
@@ -70,6 +71,8 @@ class BasicBlock(nn.Module):
     ):
         super().__init__()
         self.spatial_dim = spatial_dim
+        if kernel_size < 1 or kernel_size % 2 == 0:
+            raise ValueError("kernel_size must be a positive odd integer")
         padding = kernel_size // 2
 
         Conv = get_conv_layer(spatial_dim)
@@ -163,6 +166,7 @@ class ResNetStage(nn.Module):
         in_channels: int,
         out_channels: int,
         num_blocks: int,
+        kernel_size: int = 3,
         time_emb_dim: int = 128,
         stride: int = 1,
         norm_type: str = "group",
@@ -181,6 +185,7 @@ class ResNetStage(nn.Module):
             in_channels=in_channels,
             out_channels=out_channels,
             time_emb_dim=time_emb_dim,
+            kernel_size=kernel_size,
             stride=stride,
             norm_type=norm_type,
             activation=activation,
@@ -196,6 +201,7 @@ class ResNetStage(nn.Module):
                 in_channels=out_channels,
                 out_channels=out_channels,
                 time_emb_dim=time_emb_dim,
+                kernel_size=kernel_size,
                 stride=1,
                 norm_type=norm_type,
                 activation=activation,
@@ -325,6 +331,7 @@ class ResNet(nn.Module):
                 in_channels=current_channels,
                 out_channels=out_channels,
                 num_blocks=num_blocks,
+                kernel_size=kernel_size,
                 time_emb_dim=time_emb_dim,
                 stride=stride,
                 norm_type=norm_type,
@@ -452,6 +459,9 @@ class ResNet(nn.Module):
             out = self.output_conv(h)
 
         # Return format
+        if out.shape[2:] != x.shape[2:]:
+            out = F.interpolate(out, size=x.shape[2:], mode="nearest")
+
         if self.return_spatial:
             return out
         else:

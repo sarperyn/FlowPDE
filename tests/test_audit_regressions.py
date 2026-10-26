@@ -9,6 +9,7 @@ import torch
 from torch import nn
 
 from flowpde import MLP, FlowMatchingObjective, NeuralODEFlow
+from flowpde.core import FiLMConditioner
 from flowpde.flows import (
     BatchSource,
     GaussianSource,
@@ -17,6 +18,7 @@ from flowpde.flows import (
 )
 from flowpde.flows.components import UniformSampler
 from flowpde.flows.neural_ode import NeuralODELogProbVectorField
+from flowpde.models import ConvNet, ResNet, UNet
 from flowpde.objectives import MaximumLikelihoodObjective
 
 
@@ -156,6 +158,29 @@ def test_spatial_velocity_loss_and_solver_preserve_batch_pairing():
     assert torch.allclose(objective.compute_loss(batch), expected.double())
     result = objective.sample(batch["f"], x_init=batch["x_0"], solver="euler", n_steps=4)
     assert torch.allclose(result, (batch["x_0"] + batch["f"]).double(), atol=1e-7)
+
+
+
+@pytest.mark.parametrize("spatial_dim", [1, 2])
+def test_film_layer_norm_and_odd_downsampling(spatial_dim):
+    size = 15
+    flat = size ** spatial_dim
+    x, c, t = torch.randn(2, flat), torch.randn(2, flat), torch.rand(2, 1)
+    film = ResNet(spatial_dim, size, base_channels=8, blocks_per_stage=[1],
+                  conditioner=FiLMConditioner(flat, 8))
+    assert film(x, c, t).shape == x.shape
+    model = ResNet(spatial_dim, size, base_channels=8, blocks_per_stage=[1, 1], downsample=True)
+    assert model(x, c, t).shape == x.shape
+    model = ConvNet(spatial_dim, size, 8, 1, norm_type="layer")
+    assert model(x, c, t).shape == x.shape
+
+
+
+def test_1d_attention_batch_norm_and_even_kernel_guard():
+    model = UNet(1, 16, base_channels=8, norm_type="batch")
+    assert model(torch.randn(2, 16), torch.randn(2, 16), torch.rand(2, 1)).shape == (2, 16)
+    with pytest.raises(ValueError, match="odd"):
+        ConvNet(1, 16, 8, 1, kernel_size=4)
 
 
 
