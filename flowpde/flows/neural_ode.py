@@ -1,8 +1,9 @@
 """
 Neural ODE flows with optional likelihood evaluation.
 
-Continuous normalizing flows learn invertible transformations using neural ODEs
-and can compute exact log probabilities via the instantaneous change of variables.
+Continuous normalizing flows learn invertible transformations using neural ODEs.
+Log-density evaluation uses exact or stochastic divergence estimates in the
+instantaneous change-of-variables formula.
 """
 
 from typing import Any, Dict, Optional, Tuple, Union
@@ -12,6 +13,8 @@ import torch.nn as nn
 from torch import Tensor
 
 from flowpde.core.base_flow import BaseFlow
+from flowpde.flows.components.sources import get_source
+from flowpde.solvers.ode_solvers import evaluation_mode
 
 
 class NeuralODELogProbVectorField(nn.Module):
@@ -33,7 +36,10 @@ class NeuralODELogProbVectorField(nn.Module):
         self.model = model
         self.condition = condition
         self.trace_estimator = trace_estimator
+        if not isinstance(n_trace_samples, int) or n_trace_samples < 1:
+            raise ValueError("n_trace_samples must be a positive integer")
         self.n_trace_samples = n_trace_samples
+        self.register_buffer("_trace_noise", None, persistent=False)
 
     def forward(self, t: Tensor, state: Tensor) -> Tensor:
         r"""
@@ -56,19 +62,17 @@ class NeuralODELogProbVectorField(nn.Module):
         # Prepare time for model
         t_batch = t.expand(batch_size, 1)
 
-        # Enable gradients for trace computation
+        create_graph = torch.is_grad_enabled()
         with torch.enable_grad():
-            x_requires_grad = x.requires_grad
             x = x.requires_grad_(True)
 
             # Compute velocity
-            v = self.model(x, self.condition, t_batch)
+            v = self.model(x, self.condition, t_batch).flatten(start_dim=1)
+            if v.shape != x.shape:
+                raise ValueError("Velocity shape must match the ODE state")
 
             # Compute trace of Jacobian
-            trace = self._compute_trace(v, x)
-
-            # Restore gradient state
-            x = x.requires_grad_(x_requires_grad)
+            trace = self._compute_trace(v, x, create_graph=create_graph)
 
         # Change of variables: $d(\log p)/dt = -\text{tr}(\partial v/\partial x)$
         dlogpx_dt = -trace.view(batch_size, 1)
@@ -76,9 +80,9 @@ class NeuralODELogProbVectorField(nn.Module):
         # Combine into augmented dynamics
         dstate_dt = torch.cat([v, dlogpx_dt], dim=1)
 
-        return dstate_dt
+        return dstate_dt if create_graph else dstate_dt.detach()
 
-    def _compute_trace(self, v: Tensor, x: Tensor) -> Tensor:
+    def _compute_trace(self, v: Tensor, x: Tensor, create_graph: bool = True) -> Tensor:
         r"""
         Compute trace of Jacobian $\partial v/\partial x$.
 
@@ -90,16 +94,19 @@ class NeuralODELogProbVectorField(nn.Module):
             Trace (batch_size,)
         """
         if self.trace_estimator == 'exact':
-            return self._exact_trace(v, x)
+            return self._exact_trace(v, x, create_graph)
         elif self.trace_estimator == 'hutchinson':
-            return self._hutchinson_trace(v, x)
+            return self._hutchinson_trace(v, x, create_graph)
         else:
             raise ValueError(f"Unknown trace estimator: {self.trace_estimator}")
 
-    def _exact_trace(self, v: Tensor, x: Tensor) -> Tensor:
+    def _exact_trace(self, v: Tensor, x: Tensor, create_graph: bool = True) -> Tensor:
         """Compute exact trace by summing diagonal of Jacobian."""
         batch_size, dim = v.shape
         trace = torch.zeros(batch_size, device=v.device, dtype=v.dtype)
+
+        if not v.requires_grad:
+            return trace
 
         for i in range(dim):
             grad_outputs = torch.zeros_like(v)
@@ -108,15 +115,16 @@ class NeuralODELogProbVectorField(nn.Module):
             dvi_dx = torch.autograd.grad(
                 v, x,
                 grad_outputs=grad_outputs,
-                create_graph=True,
-                retain_graph=True
+                create_graph=create_graph,
+                retain_graph=True,
+                allow_unused=True
             )[0]
 
-            trace += dvi_dx[:, i]
+            trace = trace + (dvi_dx[:, i] if dvi_dx is not None else v[:, i] * 0)
 
         return trace
 
-    def _hutchinson_trace(self, v: Tensor, x: Tensor) -> Tensor:
+    def _hutchinson_trace(self, v: Tensor, x: Tensor, create_graph: bool = True) -> Tensor:
         r"""
         Hutchinson trace estimator: $\mathbb{E}[\varepsilon^T (\partial v/\partial x) \varepsilon]$ where $\varepsilon \sim \mathcal{N}(0, I)$.
 
@@ -124,11 +132,14 @@ class NeuralODELogProbVectorField(nn.Module):
         """
         batch_size, dim = v.shape
 
-        # Sample random vectors
-        epsilon = torch.randn(
-            self.n_trace_samples, batch_size, dim,
-            device=v.device, dtype=v.dtype
-        )
+        if self._trace_noise is None:
+            self._trace_noise = torch.randn(
+                self.n_trace_samples, batch_size, dim,
+                device=v.device, dtype=v.dtype,
+            )
+        epsilon = self._trace_noise
+        if not v.requires_grad:
+            return v.new_zeros(batch_size)
 
         traces = []
         for eps in epsilon:
@@ -136,12 +147,13 @@ class NeuralODELogProbVectorField(nn.Module):
             jvp = torch.autograd.grad(
                 v, x,
                 grad_outputs=eps,
-                create_graph=True,
-                retain_graph=True
+                create_graph=create_graph,
+                retain_graph=True,
+                allow_unused=True
             )[0]
 
             # Trace estimate: ε^T * jvp
-            trace = (eps * jvp).sum(dim=1)
+            trace = v.sum(dim=1) * 0 if jvp is None else (eps * jvp).sum(dim=1)
             traces.append(trace)
 
         # Average over samples
@@ -184,6 +196,7 @@ class NeuralODEFlow(BaseFlow):
         ode_atol: float = 1e-7,
         target_key: str = "u",
         condition_key: str = "f",
+        source=None,
     ):
         super().__init__(
             model,
@@ -191,6 +204,7 @@ class NeuralODEFlow(BaseFlow):
             condition_key=condition_key,
         )
         self.base_distribution = base_distribution
+        self.source = get_source(source if source is not None else base_distribution)
         self.trace_estimator = trace_estimator
         self.n_trace_samples = n_trace_samples
         self.ode_method = ode_method
@@ -260,15 +274,11 @@ class NeuralODEFlow(BaseFlow):
     def sample_base_distribution(
         self,
         shape: Tuple[int, ...],
-        device: torch.device
+        device: torch.device,
+        generator: Optional[torch.Generator] = None,
     ) -> Tensor:
         """Sample from base distribution."""
-        if self.base_distribution == 'gaussian':
-            return torch.randn(*shape, device=device)
-        elif self.base_distribution == 'uniform':
-            return torch.rand(*shape, device=device) * 2 - 1
-        else:
-            raise ValueError(f"Unknown base distribution: {self.base_distribution}")
+        return self.source.sample(shape, device, dtype=self.model_dtype, generator=generator)
 
     def _integrate_logprob(
         self,
@@ -299,9 +309,8 @@ class NeuralODEFlow(BaseFlow):
         from torchdiffeq import odeint
 
         batch_size = x.shape[0]
-        device = x.device
 
-        log_px = torch.zeros(batch_size, 1, device=device)
+        log_px = x.new_zeros(batch_size, 1)
         state = torch.cat([x, log_px], dim=1)
 
         vector_field = NeuralODELogProbVectorField(
@@ -311,7 +320,7 @@ class NeuralODEFlow(BaseFlow):
         )
 
         t_start, t_end = t_span
-        t_eval = torch.tensor([t_start, t_end], device=device)
+        t_eval = x.new_tensor([t_start, t_end])
 
         method = method if method is not None else self.ode_method
         n_steps = n_steps if n_steps is not None else self.ode_n_steps
@@ -319,7 +328,7 @@ class NeuralODEFlow(BaseFlow):
         kwargs: Dict[str, Any] = {"method": method}
         if method in {"euler", "midpoint", "rk4", "explicit_adams",
                       "implicit_adams", "fixed_adams"}:
-            if n_steps is None:
+            if n_steps is None or int(n_steps) != n_steps or n_steps < 1:
                 raise ValueError(
                     f"n_steps must be set when using fixed-step ODE method "
                     f"'{method}'."
@@ -329,7 +338,8 @@ class NeuralODEFlow(BaseFlow):
             kwargs["rtol"] = self.ode_rtol
             kwargs["atol"] = self.ode_atol
 
-        trajectory = odeint(vector_field, state, t_eval, **kwargs)
+        with evaluation_mode(self.model):
+            trajectory = odeint(vector_field, state, t_eval, **kwargs)
         final_state = trajectory[-1]
         return final_state[:, :-1], final_state[:, -1]
 
@@ -342,6 +352,7 @@ class NeuralODEFlow(BaseFlow):
         target_shape: Optional[Union[int, Tuple[int, ...]]] = None,
         return_trajectory: bool = False,
         no_grad: bool = True,
+        generator: Optional[torch.Generator] = None,
         **solver_kwargs: Any
     ) -> Union[Tensor, Tuple[Tensor, Tensor]]:
         """
@@ -368,13 +379,13 @@ class NeuralODEFlow(BaseFlow):
             Samples (B, dim), or `(samples, trajectory)` when
             `return_trajectory` is set.
         """
-        condition = condition.flatten(start_dim=1).to(self.model_device)
+        condition = condition.flatten(start_dim=1).to(device=self.model_device, dtype=self.model_dtype)
         batch_size = condition.shape[0]
 
         if x_init is None:
             dim = self._resolve_target_dim(target_shape)
             x_init = self.sample_base_distribution(
-                (batch_size, dim), self.model_device
+                (batch_size, dim), self.model_device, generator=generator
             )
         else:
             x_init = x_init.flatten(start_dim=1).to(self.model_device)
@@ -405,8 +416,11 @@ class NeuralODEFlow(BaseFlow):
         Returns:
             Log probabilities (batch_size,)
         """
-        x = x.flatten(start_dim=1).to(self.model_device)
-        condition = condition.flatten(start_dim=1).to(self.model_device)
+        x = x.flatten(start_dim=1).to(device=self.model_device, dtype=self.model_dtype)
+        condition = condition.flatten(start_dim=1).to(device=self.model_device, dtype=self.model_dtype)
+        unknown = set(kwargs) - {"n_steps", "solver", "method"}
+        if unknown:
+            raise TypeError(f"Unknown log_prob options: {sorted(unknown)}")
 
         # Transport data back to the base distribution, accumulating the
         # change in log density along the way.
@@ -429,17 +443,7 @@ class NeuralODEFlow(BaseFlow):
         Log density of the base distribution, matching
         `sample_base_distribution` exactly.
         """
-        if self.base_distribution == 'gaussian':
-            return -0.5 * (z ** 2).sum(dim=1) - 0.5 * z.shape[1] * torch.log(
-                torch.tensor(2 * torch.pi, device=z.device)
-            )
-        elif self.base_distribution == 'uniform':
-            # sample_base_distribution draws U(-1, 1)^d, so the density is
-            # 2^-d on that support.
-            in_support = ((z >= -1) & (z <= 1)).all(dim=1).float()
-            return torch.log(in_support / (2 ** z.shape[1]) + 1e-10)
-        else:
-            raise ValueError(f"Unknown base distribution: {self.base_distribution}")
+        return self.source.log_prob(z)
 
     def forward_transform(
         self,
@@ -463,8 +467,8 @@ class NeuralODEFlow(BaseFlow):
         if condition is None:
             raise ValueError("NeuralODEFlow requires conditioning")
 
-        x = x.flatten(start_dim=1).to(self.model_device)
-        condition = condition.flatten(start_dim=1).to(self.model_device)
+        x = x.flatten(start_dim=1).to(device=self.model_device, dtype=self.model_dtype)
+        condition = condition.flatten(start_dim=1).to(device=self.model_device, dtype=self.model_dtype)
 
         ode_solver = self._make_solver(solver, **solver_kwargs)
         return ode_solver.sample(
@@ -500,6 +504,7 @@ class NeuralODEFlow(BaseFlow):
         return {
             'flow_type': 'neural_ode',
             'base_distribution': self.base_distribution,
+            'source': self.source.get_config(),
             'trace_estimator': self.trace_estimator,
             'n_trace_samples': self.n_trace_samples,
             'ode_method': self.ode_method,
@@ -511,3 +516,12 @@ class NeuralODEFlow(BaseFlow):
             'condition_key': self.condition_key,
             'model_type': self.model.__class__.__name__
         }
+
+    def restore_config(self, config):
+        for name in ("base_distribution", "trace_estimator", "n_trace_samples",
+                     "ode_method", "ode_n_steps", "use_adjoint", "ode_rtol", "ode_atol",
+                     "target_key", "condition_key"):
+            if name in config:
+                setattr(self, name, config[name])
+        if "source" in config:
+            self.source = get_source(config["source"])

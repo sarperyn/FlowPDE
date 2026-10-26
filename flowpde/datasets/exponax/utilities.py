@@ -51,9 +51,11 @@ def compute_normalization_stats(tensor: torch.Tensor) -> dict:
     Returns:
         Dictionary with 'mean', 'std', 'min', and 'max' values.
     """
+    if tensor.numel() == 0 or not torch.isfinite(tensor).all():
+        raise ValueError("Cannot compute statistics for empty or nonfinite PDE data")
     return {
         'mean': tensor.mean().item(),
-        'std': tensor.std().item(),
+        'std': tensor.std(correction=0 if tensor.numel() == 1 else 1).item(),
         'min': tensor.min().item(),
         'max': tensor.max().item(),
     }

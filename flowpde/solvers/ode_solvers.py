@@ -13,7 +13,7 @@ Available solvers:
 Refactored to inherit from flowpde.core.base_solver.ODESolver
 """
 
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -21,7 +21,19 @@ from torch import Tensor, nn
 from torchdiffeq import odeint, odeint_adjoint
 
 from flowpde.core.base_solver import ODESolver
-from flowpde.utils.utils import resolve_device
+
+
+@contextmanager
+def evaluation_mode(model):
+    """Scope deterministic dynamics, including adjoint RHS recomputation."""
+    modes = [(module, module.training) for module in model.modules()]
+    for module, _ in modes:
+        module.training = False
+    try:
+        yield
+    finally:
+        for module, training in modes:
+            module.training = training
 
 
 class VelocityField(nn.Module):
@@ -60,7 +72,11 @@ class VelocityField(nn.Module):
 
         # Compute velocity. The caller owns the grad context: sample()
         # sets it, and training needs the graph kept.
-        return self.model(x, self.condition, t_batch)
+        with evaluation_mode(self.model):
+            velocity = self.model(x, self.condition, t_batch).flatten(start_dim=1)
+        if velocity.shape != x.shape:
+            raise ValueError(f"Velocity shape {velocity.shape} must match state {x.shape}")
+        return velocity
 
 
 class ODEFlowSolver(ODESolver):
@@ -154,27 +170,12 @@ class ODEFlowSolver(ODESolver):
         Returns:
             y_final: Final state at t_end (batch_size, dim)
         """
-        device = y0.device
-        t_eval = torch.tensor(list(t_span), device=device)
-
-        # Build options. 'dtype' is an adaptive-solver option; fixed-step
-        # solvers reject it with a warning on every call.
-        options = {} if self.method in self.FIXED_STEP_SOLVERS else {'dtype': torch.float32}
-        options.update(self.method_options)
-        options.update(kwargs)
-
-        # Solve
-        trajectory = self.odeint_fn(
-            func,
-            y0,
-            t_eval,
-            method=self.method,
-            rtol=self.rtol,
-            atol=self.atol,
-            options=options
-        )
-
-        return trajectory[-1]  # Return final state
+        t_eval = y0.new_tensor(t_span)
+        if self.method in self.FIXED_STEP_SOLVERS and not (
+            "step_size" in kwargs or "step_size" in self.method_options
+        ):
+            raise ValueError("A fixed-step solve requires step_size")
+        return self.solve_trajectory(func, y0, t_eval, **kwargs)[-1]
 
     def solve_trajectory(
         self,
@@ -195,6 +196,8 @@ class ODEFlowSolver(ODESolver):
         Returns:
             trajectory: States at each time point (n_steps, batch_size, dim)
         """
+        if t_eval.numel() < 2:
+            raise ValueError("t_eval must contain at least two points")
         # Build options. 'dtype' is an adaptive-solver option; fixed-step
         # solvers reject it with a warning on every call.
         if self.method in self.FIXED_STEP_SOLVERS:
@@ -206,10 +209,18 @@ class ODEFlowSolver(ODESolver):
             # (data -> latent, t: 1 -> 0) fail outright.
             options['step_size'] = abs(dt.item())
         else:
-            options = {'dtype': torch.float32}
+            options = {'dtype': torch.float64 if y0.dtype == torch.float64 else torch.float32}
 
         options.update(self.method_options)
         options.update(kwargs)
+
+        adjoint_kwargs = {}
+        if self.adjoint:
+            params = tuple(func.parameters()) if isinstance(func, nn.Module) else ()
+            condition = getattr(func, "condition", None)
+            if isinstance(condition, Tensor) and condition.requires_grad:
+                params += (condition,)
+            adjoint_kwargs["adjoint_params"] = params
 
         # Solve
         trajectory = self.odeint_fn(
@@ -219,7 +230,8 @@ class ODEFlowSolver(ODESolver):
             method=self.method,
             rtol=self.rtol,
             atol=self.atol,
-            options=options
+            options=options,
+            **adjoint_kwargs,
         )
 
         return trajectory
@@ -256,17 +268,11 @@ class ODEFlowSolver(ODESolver):
             samples: Final samples at t_end (batch_size, dim) or (batch_size, H, W)
             trajectory: (optional) Full trajectory if return_trajectory=True
         """
-        was_training = self.model.training
-        self.model.eval()
-        try:
+        with evaluation_mode(self.model):
             with torch.no_grad() if no_grad else nullcontext():
                 return self._sample(
                     condition, x_init, t_span, return_trajectory, n_steps
                 )
-        finally:
-            # Eval mode is scoped to this call, never a permanent change to the
-            # caller's model.
-            self.model.train(was_training)
 
     def _sample(
         self,
@@ -282,7 +288,9 @@ class ODEFlowSolver(ODESolver):
         if condition.dim() > 2:
             condition = condition.flatten(start_dim=1)
 
-        condition = condition.float()
+        parameter = next(self.model.parameters(), None)
+        if parameter is not None:
+            condition = condition.to(parameter)
         batch_size = condition.shape[0]
         device = condition.device
 
@@ -290,23 +298,32 @@ class ODEFlowSolver(ODESolver):
         if x_init is None:
             # Default: same spatial shape as condition but need to infer solution channels
             # For now, assume solution has 1 channel (common for PDEs)
-            if len(condition_original_shape) > 2:
+            if hasattr(self.model, "input_dim"):
+                x_init = torch.randn(batch_size, self.model.input_dim, device=device, dtype=condition.dtype)
+                x_init_original_shape = x_init.shape
+            elif len(condition_original_shape) > 2:
                 # Spatial input: (B, C, H, W) -> solution is (B, 1, H, W)
-                solution_shape = (batch_size, 1, *condition_original_shape[2:])
-                x_init = torch.randn(solution_shape, device=device)
+                channels = getattr(self.model, "solution_channels", 1)
+                solution_shape = (batch_size, channels, *condition_original_shape[2:])
+                x_init = torch.randn(solution_shape, device=device, dtype=condition.dtype)
                 x_init_original_shape = solution_shape
             else:
                 # Flattened input: same dim as condition
-                x_init = torch.randn_like(condition)
-                x_init_original_shape = condition_original_shape
+                dim = getattr(self.model, "solution_channels", 1) * getattr(
+                    self.model, "spatial_size", condition.shape[1]
+                ) ** getattr(self.model, "spatial_dim", 1)
+                x_init = torch.randn(batch_size, dim, device=device, dtype=condition.dtype)
+                x_init_original_shape = x_init.shape
         else:
             x_init_original_shape = x_init.shape
 
         # Flatten x_init for ODE integration
         if x_init.dim() > 2:
-            x_init = x_init.flatten(start_dim=1).float()
+            x_init = x_init.flatten(start_dim=1).to(condition)
         else:
-            x_init = x_init.float()
+            x_init = x_init.to(condition)
+        if x_init.shape[0] != batch_size:
+            raise ValueError("Initial state and condition batch sizes must match")
 
         # Create time span
         t_start, t_end = t_span
@@ -316,23 +333,29 @@ class ODEFlowSolver(ODESolver):
                 f"'{self.method}'. Without it the integration silently "
                 f"collapses to a single step across the whole interval."
             )
-        if return_trajectory or (self.method in self.FIXED_STEP_SOLVERS and n_steps is not None):
+        if n_steps is not None and (int(n_steps) != n_steps or n_steps < 1):
+            raise ValueError("n_steps must be a positive integer")
+        if return_trajectory:
             # Fixed evaluation points
             if n_steps is None:
                 n_steps = 50  # Default
-            t_eval = torch.linspace(t_start, t_end, n_steps + 1, device=device)
+            t_eval = torch.linspace(t_start, t_end, n_steps + 1, device=device, dtype=x_init.dtype)
         else:
             # For adaptive solvers, just specify endpoints
-            t_eval = torch.tensor([t_start, t_end], device=device)
+            t_eval = x_init.new_tensor([t_start, t_end])
 
         # Create velocity field
         velocity_field = VelocityField(self.model, condition)
 
         # Solve ODE
+        step_options = {}
+        if self.method in self.FIXED_STEP_SOLVERS and n_steps is not None:
+            step_options["step_size"] = abs(t_end - t_start) / n_steps
         trajectory = self.solve_trajectory(
             velocity_field,
             x_init,
-            t_eval
+            t_eval,
+            **step_options,
         )
 
         # trajectory shape: (n_steps+1, batch_size, dim) or (2, batch_size, dim)
@@ -395,7 +418,8 @@ def sample_with_ode_solver(
         ...     device='cuda'
         ... )
     """
-    device = resolve_device(device)
+    device = str(next(model.parameters()).device) if device is None else device
+    model.to(device)
     condition = condition.to(device)
 
     solver_instance = ODEFlowSolver(
@@ -418,7 +442,8 @@ def compare_solvers(
     ground_truth: Optional[Tensor] = None,
     solvers: Optional[List[str]] = None,
     device: Optional[str] = None,
-    n_steps: int = 50
+    n_steps: int = 50,
+    x_init: Optional[Tensor] = None,
 ) -> dict:
     """
     Compare different ODE solvers on the same input.
@@ -453,13 +478,19 @@ def compare_solvers(
     if solvers is None:
         solvers = ['euler', 'midpoint', 'rk4', 'dopri5']
 
-    device = resolve_device(device)
-    model.eval()
+    device = str(next(model.parameters()).device) if device is None else device
+    model.to(device)
     condition = condition.to(device)
     if ground_truth is not None:
         ground_truth = ground_truth.to(device)
 
     results = {}
+    if x_init is None:
+        dim = getattr(model, "input_dim", condition[0].numel())
+        if hasattr(model, "solution_channels"):
+            dim = model.solution_channels * model.spatial_size ** model.spatial_dim
+        parameter = next(model.parameters())
+        x_init = torch.randn(condition.shape[0], dim, device=device, dtype=parameter.dtype)
 
     for solver_name in solvers:
         # Create solver
@@ -471,16 +502,17 @@ def compare_solvers(
         )
 
         # Time the sampling
-        if device == 'cuda':
+        if torch.device(device).type == 'cuda':
             torch.cuda.synchronize()
         start_time = time.time()
 
         samples = ode_solver.sample(
             condition=condition,
+            x_init=x_init,
             n_steps=n_steps if solver_name in ODEFlowSolver.FIXED_STEP_SOLVERS else None
         )
 
-        if device == 'cuda':
+        if torch.device(device).type == 'cuda':
             torch.cuda.synchronize()
         elapsed = time.time() - start_time
 

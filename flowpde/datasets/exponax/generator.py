@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional
 
@@ -30,6 +31,8 @@ class FourierFieldConfig:
 
 def log_uniform(key, n: int, min_value: float, max_value: float):
     """Draw `n` positive scalars from a log-uniform distribution."""
+    if not (math.isfinite(min_value) and math.isfinite(max_value) and 0 < min_value <= max_value):
+        raise ValueError("Log-uniform bounds must satisfy 0 < min <= max and be finite")
     values = jax.random.uniform(
         key,
         shape=(n,),
@@ -100,7 +103,9 @@ class ExponaxDatasetGenerator:
 
     def resolve_run(self, num_samples: Optional[int], seed: Optional[int]):
         cfg = self.config
-        n = num_samples or cfg.num_samples
+        n = cfg.num_samples if num_samples is None else num_samples
+        if n < 1:
+            raise ValueError("num_samples must be positive")
         s = seed if seed is not None else cfg.seed
         return cfg, n, s
 
@@ -190,6 +195,8 @@ class ExponaxDatasetGenerator:
         metadata = {
             "stats": stats,
             "config": self.config.to_dict(),
+            "grid": {"spacing": self.config.domain_extent / self.config.num_points,
+                     "periodic": True, "endpoint_included": False},
         }
         # Generation diagnostics (e.g. solver residuals) belong in metadata,
         # not in `data`: they are not fields and must not be normalized.

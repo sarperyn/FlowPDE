@@ -22,6 +22,10 @@ __pycache__/
 /configs/
 /presentation
 
+# Benchmark outputs (weights are published as release assets)
+/benchmarks/runs/
+/benchmarks/logs/
+
 # MkDocs build output — the source in docs/ is what belongs in git
 /site
 /.cache

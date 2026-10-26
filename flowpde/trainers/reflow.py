@@ -180,11 +180,9 @@ def generate_reflow_pairs(
             batch_size = condition.shape[0]
             flat_dim = int(batch[target_key][0].numel())
 
-            if seed is not None:
-                generator = torch.Generator().manual_seed(seed + batch_idx)
-                z = torch.randn(batch_size, flat_dim, generator=generator).to(device)
-            else:
-                z = torch.randn(batch_size, flat_dim, device=device)
+            generator = torch.Generator().manual_seed(seed + batch_idx) if seed is not None else None
+            flow = getattr(objective, "flow", objective)
+            z = flow.sample_base_distribution((batch_size, flat_dim), device, generator=generator)
 
             x_1 = objective.sample(
                 condition=condition,
@@ -266,6 +264,8 @@ def reflow(
     # default, so reflow does not relocate an already-placed model.
     trainer_kwargs.setdefault("device", str(_objective_device(objective)))
     original_source = objective.source
+    if getattr(objective.path, "sigma", 0) > 0:
+        raise ValueError("Reflow requires a noiseless training path to preserve generated endpoint pairs")
     history: List[Dict[str, Any]] = []
 
     try:
@@ -282,7 +282,7 @@ def reflow(
             )
 
             # Training must consume those exact pairs.
-            objective.source = BatchSource(key=pairs.source_key, strict=True)
+            objective.source = BatchSource(key=pairs.source_key, strict=True, fallback=objective.flow.source)
 
             pair_loader = DataLoader(pairs, batch_size=batch_size, shuffle=True)
             iteration_dir = (

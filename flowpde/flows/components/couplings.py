@@ -23,6 +23,9 @@ class Coupling(ABC):
     transport (OT) couplings can improve training.
     """
 
+    def get_config(self):
+        return {"type": type(self).__name__, **vars(self)}
+
     @abstractmethod
     def couple(
         self,
@@ -125,8 +128,10 @@ class MiniBatchOTCoupling(Coupling):
         batch_size = x_0.shape[0]
 
         # Flatten for distance computation
-        x_0_flat = x_0.view(batch_size, -1)
-        x_1_flat = x_1.view(batch_size, -1)
+        if x_0.shape != x_1.shape:
+            raise ValueError("OT requires source and target shapes to match")
+        x_0_flat = x_0.reshape(batch_size, -1)
+        x_1_flat = x_1.reshape(batch_size, -1)
 
         # Compute cost matrix
         if self.cost_fn == 'euclidean':
@@ -149,6 +154,20 @@ class MiniBatchOTCoupling(Coupling):
         x_0_coupled = x_0[inverse_perm]
 
         return x_0_coupled, x_1
+
+    def couple_conditioned(self, x_0, x_1, condition):
+        """Only exchange noise between samples with identical conditions.
+
+        Across distinct PDE conditions a global assignment changes p(x_0|c).
+        Singleton groups intentionally retain independent coupling.
+        """
+        _, groups = torch.unique(condition.detach(), dim=0, return_inverse=True)
+        result = x_0.clone()
+        for group in groups.unique():
+            indices = (groups == group).nonzero(as_tuple=True)[0]
+            if indices.numel() > 1:
+                result[indices], _ = self.couple(x_0[indices], x_1[indices])
+        return result, x_1
 
 
 # =============================================================================
@@ -183,6 +202,12 @@ def get_coupling(
     """
     if isinstance(coupling, Coupling):
         return coupling
+
+    if isinstance(coupling, dict):
+        config = dict(coupling)
+        name = config.pop("type")
+        classes = {cls.__name__: cls for cls in _COUPLING_REGISTRY.values()}
+        return classes[name](**config)
 
     if coupling not in _COUPLING_REGISTRY:
         raise ValueError(

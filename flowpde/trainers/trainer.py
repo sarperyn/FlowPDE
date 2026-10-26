@@ -117,16 +117,18 @@ class Trainer:
         self.best_loss = float("inf")
         self.best_metric = float("inf") if monitor_mode == "min" else -float("inf")
         self.history: Dict[str, list] = {"train_loss": [], "val": []}
+        self.start_epoch = 0
 
     # Training
 
     def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         return self.objective.compute_loss(batch)
 
-    def step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, Any]:
+    def step(self, batch: Dict[str, torch.Tensor], return_tensor: bool = False) -> Dict[str, Any]:
         self.optimizer.zero_grad()
 
         if self.use_amp:
+            previous_scale = self.scaler.get_scale()
             with autocast(device_type=self._amp_device_type):
                 loss = self.compute_loss(batch)
             self.scaler.scale(loss).backward()
@@ -142,10 +144,10 @@ class Trainer:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
             self.optimizer.step()
 
-        if self.ema is not None:
+        if self.ema is not None and (not self.use_amp or self.scaler.get_scale() >= previous_scale):
             self.ema.update()
 
-        return {"loss": loss.item()}
+        return {"loss": loss.detach() if return_tensor else loss.item()}
 
     def train_one_epoch(self, data_loader: Iterable) -> float:
         self.objective.train()
@@ -153,11 +155,14 @@ class Trainer:
         num_batches = 0
 
         for batch in data_loader:
-            loss_dict = self.step(batch)
-            total_loss += loss_dict["loss"]
-            num_batches += 1
+            loss_dict = self.step(batch, return_tensor=True)
+            batch_size = next(value.shape[0] for value in batch.values() if isinstance(value, torch.Tensor))
+            total_loss = total_loss + loss_dict["loss"] * batch_size
+            num_batches += batch_size
 
-        return total_loss / num_batches if num_batches > 0 else 0.0
+        if not num_batches:
+            raise RuntimeError("Training loader produced no batches")
+        return (total_loss / num_batches).item()
 
     # Validation
 
@@ -175,10 +180,13 @@ class Trainer:
         if self.validator is None:
             return None
 
+        was_training = self.objective.training
         self.objective.eval()
-        with torch.no_grad(), self._ema_context():
-            metrics = self.validator()
-        self.objective.train()
+        try:
+            with torch.no_grad(), self._ema_context():
+                metrics = self.validator()
+        finally:
+            self.objective.train(was_training)
         return metrics
 
     def _is_improvement(self, value: float) -> bool:
@@ -198,6 +206,21 @@ class Trainer:
             )
 
         extra = dict(self.checkpoint_extra)
+        extra["format_version"] = 2
+        if hasattr(self.objective, "flow"):
+            extra["flow_state"] = {name: value.detach().cpu().clone()
+                                   for name, value in self.objective.flow.state_dict().items()
+                                   if not name.startswith("model.")}
+            extra["objective_config"] = self.objective.get_config()
+        extra["trainer_state"] = {
+            "best_loss": self.best_loss, "best_metric": self.best_metric,
+            "history": self.history, "monitor": self.monitor,
+            "monitor_mode": self.monitor_mode,
+        }
+        extra["scaler_state"] = self.scaler.state_dict() if self.scaler is not None else None
+        extra["rng_state"] = torch.get_rng_state()
+        if torch.cuda.is_initialized():
+            extra["cuda_rng_state"] = torch.cuda.get_rng_state_all()
         if self.ema is not None:
             extra["ema_state"] = self.ema.state_dict()
             # 'model_state' below holds the averaged weights, so the live ones
@@ -256,6 +279,14 @@ class Trainer:
             map_location=map_location if map_location is not None else self.device,
             weights_only=weights_only,
         )
+        if checkpoint.get("format_version", 1) > 2:
+            raise ValueError("Unsupported training checkpoint format")
+        if "flow_state" in checkpoint and hasattr(self.objective, "flow"):
+            flow = self.objective.flow
+            flow.load_state_dict({**flow.state_dict(), **checkpoint["flow_state"]})
+            config = checkpoint.get("objective_config", {})
+            if hasattr(self.objective, "restore_config") and config:
+                self.objective.restore_config(config)
 
         if not resume_training:
             self.model.load_state_dict(checkpoint["model_state"])
@@ -279,6 +310,15 @@ class Trainer:
             self.scheduler.load_state_dict(checkpoint["scheduler_state"])
         if self.ema is not None and checkpoint.get("ema_state"):
             self.ema.load_state_dict(checkpoint["ema_state"])
+        if self.scaler is not None and checkpoint.get("scaler_state"):
+            self.scaler.load_state_dict(checkpoint["scaler_state"])
+        for name, value in checkpoint.get("trainer_state", {}).items():
+            setattr(self, name, value)
+        self.start_epoch = checkpoint["epoch"] + 1
+        if "rng_state" in checkpoint:
+            torch.set_rng_state(checkpoint["rng_state"].cpu())
+        if torch.cuda.is_initialized() and "cuda_rng_state" in checkpoint:
+            torch.cuda.set_rng_state_all([state.cpu() for state in checkpoint["cuda_rng_state"]])
         return checkpoint
 
     # Main loop
@@ -296,7 +336,10 @@ class Trainer:
         epoch_losses = []
         val_curve = []
 
-        for epoch in range(epochs):
+        if print_stats_interval < 1 or save_interval < 1 or epochs < 1:
+            raise ValueError("Epoch and reporting intervals must be positive")
+        stop_epoch = self.start_epoch + epochs
+        for epoch in range(self.start_epoch, stop_epoch):
             start_time = time.perf_counter()
             epoch_loss = self.train_one_epoch(data_loader=data_loader)
             epoch_losses.append(epoch_loss)
@@ -307,7 +350,7 @@ class Trainer:
 
             # Validation
             metrics = None
-            is_val_epoch = (epoch + 1) % self.val_interval == 0 or epoch == epochs - 1
+            is_val_epoch = (epoch + 1) % self.val_interval == 0 or epoch == stop_epoch - 1
             if self.validator is not None and is_val_epoch:
                 metrics = self.validate()
                 self.history["val"].append((epoch, metrics))
@@ -331,16 +374,16 @@ class Trainer:
                     stats.update({f"Val_{k}": v for k, v in metrics.items()})
                 print_stats(**stats)
 
+            improved_train = epoch_loss < self.best_loss
+            self.best_loss = min(self.best_loss, epoch_loss)
+            self.start_epoch = epoch + 1
             # Model selection: validation metric when available, else loss.
             if metrics is not None:
                 if self._is_improvement(metrics[self.monitor]):
                     self.best_metric = metrics[self.monitor]
                     self._save("best_model.pt", epoch, epoch_loss)
-            elif self.validator is None and epoch_loss < self.best_loss:
+            elif self.validator is None and improved_train:
                 self._save("best_model.pt", epoch, epoch_loss)
-
-            if epoch_loss < self.best_loss:
-                self.best_loss = epoch_loss
 
             if (epoch + 1) % save_interval == 0:
                 self._save("latest_checkpoint.pt", epoch, epoch_loss)

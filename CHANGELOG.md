@@ -7,6 +7,20 @@ releases may contain breaking API changes; they will be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- `flowpde.pretrained`: `load_pretrained` loads a model by registry name, local
+  file or URL (downloads are cached and checked against their sha256);
+  `save_pretrained` writes a self-describing file holding the weights, a recipe
+  to rebuild the model, the normalizer, how the data was generated and test
+  metrics. `PretrainedModel.sample` returns fields in physical units and
+  `make_dataset` regenerates data from the training distribution.
+- `benchmarks/`: task definitions for Burgers, Poisson and Darcy (forward and
+  inverse) at `full`, `quick` and `smoke` scales; a runner for CPU, Apple MPS
+  and CUDA that trains, evaluates and exports pretrained files; a table
+  generator for `docs/benchmarks.md`; a publish helper for GitHub release
+  assets; and a SLURM template.
+
 ## [0.2.0] - 2026-10-06
 
 ### Added

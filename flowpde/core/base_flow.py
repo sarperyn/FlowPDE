@@ -5,6 +5,7 @@ Defines the interface for all normalizing flow types in FlowPDE.
 """
 
 from abc import ABC, abstractmethod
+from itertools import chain
 from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
@@ -53,7 +54,14 @@ class BaseFlow(ABC, nn.Module):
     @property
     def model_device(self) -> torch.device:
         """Get the device of the model parameters."""
-        return next(self.model.parameters()).device
+        reference = next(chain(self.model.parameters(), self.model.buffers()), None)
+        return reference.device if reference is not None else torch.device("cpu")
+
+    @property
+    def model_dtype(self) -> torch.dtype:
+        reference = next((value for value in chain(self.model.parameters(), self.model.buffers())
+                          if value.is_floating_point()), None)
+        return reference.dtype if reference is not None else torch.get_default_dtype()
 
     def _extract_target_condition(
         self,
@@ -74,8 +82,10 @@ class BaseFlow(ABC, nn.Module):
                 f"Expected {expected}. Available keys: [{available}]"
             )
 
-        target = batch[target_key].flatten(start_dim=1).to(self.model_device)
-        condition = batch[condition_key].flatten(start_dim=1).to(self.model_device)
+        target = batch[target_key].flatten(start_dim=1).to(device=self.model_device, dtype=self.model_dtype)
+        condition = batch[condition_key].flatten(start_dim=1).to(target)
+        if target.shape[0] != condition.shape[0]:
+            raise ValueError("Target and condition batch sizes must match")
         return target, condition
 
     @abstractmethod

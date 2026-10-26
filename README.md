@@ -36,6 +36,8 @@ fields. It combines flow matching with neural ODEs to solve forward problems and
 - Flow matching and maximum-likelihood objectives over the same `NeuralODEFlow`
 - MLP, ConvNet, ResNet, and UNet backbone neural network models
 - ODE sampling, EMA training, evaluation in physical units, and reflow
+- A benchmark suite that trains, scores and exports pretrained models, loadable
+  with `flowpde.pretrained.load_pretrained` (CPU, Apple MPS or CUDA)
 
 Each of the six problem settings is drawn out under
 [Problem settings](#problem-settings).
@@ -134,6 +136,28 @@ directly in an editor that renders notebooks, or bring one along for the run:
 uv run --with jupyterlab jupyter lab notebooks/    # uv
 pip install jupyterlab && jupyter lab notebooks/   # activated virtualenv
 ```
+
+## Benchmarks and pretrained models
+
+The [`benchmarks/`](https://github.com/sarperyn/FlowPDE/tree/main/benchmarks) scripts train
+four reference tasks (Burgers forward, Poisson forward, Darcy forward and inverse), score
+them on a held-out test split, and export each as a self-describing pretrained file:
+
+```bash
+python -m benchmarks.run burgers_forward --scale quick       # laptop: CPU or Apple MPS
+python -m benchmarks.run --all --scale full --device cuda    # report settings, on a GPU
+```
+
+<!-- docs-test: skip (needs a benchmark run) -->
+```python
+from flowpde.pretrained import load_pretrained
+
+model = load_pretrained("benchmarks/runs/quick/burgers_forward/burgers_forward.pt")
+test = model.make_dataset(num_samples=8, seed=2024)   # fresh data, normalized for the model
+```
+
+Published models load by name and are downloaded on first use. Results and usage are on the
+[Benchmarks page](https://sarperyn.github.io/FlowPDE/benchmarks/).
 
 ## Problem settings
 

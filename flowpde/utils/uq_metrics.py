@@ -384,6 +384,8 @@ def variance_decomposition(
         )
 
     stacked = torch.stack([_stack(s) for s in model_samples], dim=0)  # (M, K, B, ...)
+    if stacked.shape[1] < 2:
+        raise ValueError("variance_decomposition needs at least 2 members per model")
 
     within_variance = stacked.var(dim=1, unbiased=True)   # (M, B, ...)
     per_model_mean = stacked.mean(dim=1)                  # (M, B, ...)
@@ -404,15 +406,16 @@ def _spearman(a: Tensor, b: Tensor) -> Tensor:
     """Spearman rank correlation between two 1-D tensors."""
 
     def ranks(x: Tensor) -> Tensor:
-        order = x.argsort()
-        result = torch.empty_like(order, dtype=x.dtype)
-        result[order] = torch.arange(len(x), device=x.device, dtype=x.dtype)
-        return result
+        _, inverse, counts = torch.unique(x, sorted=True, return_inverse=True, return_counts=True)
+        averages = counts.cumsum(0).to(x.dtype) - (counts.to(x.dtype) + 1) / 2
+        return averages[inverse]
 
     rank_a, rank_b = ranks(a), ranks(b)
     rank_a = rank_a - rank_a.mean()
     rank_b = rank_b - rank_b.mean()
-    denominator = (rank_a.norm() * rank_b.norm()).clamp(min=1e-12)
+    denominator = rank_a.norm() * rank_b.norm()
+    if denominator == 0:
+        return denominator.new_full((), torch.nan)
     return (rank_a * rank_b).sum() / denominator
 
 
@@ -441,6 +444,8 @@ def error_spread_correlation(
     """
     stacked = _stack(samples)
     batch_size = stacked.shape[1]
+    if stacked.shape[0] < 2:
+        raise ValueError("error_spread_correlation needs at least 2 ensemble members")
     if batch_size < 4:
         raise ValueError("error_spread_correlation needs at least 4 samples.")
 
