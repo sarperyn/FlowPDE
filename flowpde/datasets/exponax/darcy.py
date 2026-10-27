@@ -49,7 +49,7 @@ sample = dataset[0]
 import logging
 import math
 from dataclasses import dataclass
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import jax
 import jax.numpy as jnp
@@ -68,7 +68,7 @@ from .generator import (
     FourierFieldConfig,
     sample_fourier_fields,
 )
-from .utilities import jax_to_torch
+from .utilities import compute_normalization_stats, jax_to_torch
 
 logger = logging.getLogger(__name__)
 
@@ -279,8 +279,8 @@ class DarcyConfig(GenerationConfig):
     Configuration for the Darcy-flow / variable-coefficient Poisson generator.
 
     Inherits all base fields from `GenerationConfig` (`num_points`,
-    `num_samples`, `seed`, `torch_device`, `obs_noise_std`,
-    `obs_mask_fraction`).
+    `num_samples`, `seed`, `torch_device`). Observation noise and masking
+    are Darcy-specific options.
 
     Attributes:
         num_spatial_dims: Spatial dimension (1 or 2).  Default 2.
@@ -315,6 +315,9 @@ class DarcyConfig(GenerationConfig):
     num_spatial_dims: int   = 2
     domain_extent:    float = 1.0
 
+    obs_noise_std: float = 0.0
+    obs_mask_fraction: float = 1.0
+
     # κ field
     kappa_alpha: float = 2.0
     kappa_tau:   float = 3.0
@@ -329,6 +332,13 @@ class DarcyConfig(GenerationConfig):
     # Solver
     cg_steps: int = 2000
     cg_tolerance: Optional[float] = 1e-6
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not 0 <= self.obs_mask_fraction <= 1:
+            raise ValueError("obs_mask_fraction must lie in [0, 1]")
+        if not math.isfinite(self.obs_noise_std) or self.obs_noise_std < 0:
+            raise ValueError("obs_noise_std must be finite and nonnegative")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -530,6 +540,61 @@ class DarcyGenerator(ExponaxDatasetGenerator):
 
     config_cls = DarcyConfig
     dataset_cls = DarcyDataset
+
+    def apply_observation_augmentation(
+        self,
+        data: Dict[str, torch.Tensor],
+        *,
+        observation_key: str,
+        problem: Literal["forward", "inverse"],
+        n: int,
+        seed: int,
+    ) -> Dict[str, Any]:
+        """
+        Add observation noise and/or spatial masking, in place.
+
+        Returns:
+            A dict to forward to `wrap_dataset`. It carries `'clean_stats'`
+            (pass as `extra_stats`) and `'observation_key'` (pass inside
+            `extra_metadata`), both empty when no augmentation applied.
+        """
+        cfg = self.config
+        if problem != "inverse":
+            return {}
+        if cfg.obs_noise_std <= 0.0 and cfg.obs_mask_fraction >= 1.0:
+            return {}
+
+        # Statistics must describe the *clean* field. Fitting them on the
+        # masked observation deflates the std by roughly
+        # sqrt(obs_mask_fraction) and shifts the mean, so the same normalizer
+        # would put clean data on a different scale.
+        clean_stats = {observation_key: compute_normalization_stats(data[observation_key])}
+
+        if cfg.obs_noise_std > 0.0:
+            noise_gen = torch.Generator().manual_seed(seed + 1)
+            noise = torch.randn(
+                data[observation_key].shape,
+                generator=noise_gen,
+                dtype=data[observation_key].dtype,
+            ).to(device=data[observation_key].device)
+            data[observation_key] = (
+                data[observation_key] + cfg.obs_noise_std * noise
+            )
+
+        if cfg.obs_mask_fraction < 1.0:
+            spatial_shape = (cfg.num_points,) * cfg.num_spatial_dims
+            mask_gen = torch.Generator().manual_seed(seed)
+            obs_mask = (
+                torch.rand((n, 1) + spatial_shape, generator=mask_gen)
+                < cfg.obs_mask_fraction
+            ).float().to(device=cfg.torch_device)
+            data[observation_key] = data[observation_key] * obs_mask
+            data["obs_mask"] = obs_mask
+
+        return {
+            "clean_stats": clean_stats,
+            "observation_key": observation_key,
+        }
 
     def generate(
         self,

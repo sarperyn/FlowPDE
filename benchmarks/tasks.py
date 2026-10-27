@@ -96,8 +96,8 @@ TASKS: Dict[str, Dict[str, Any]] = {
             "config": {
                 "num_spatial_dims": 1, "num_points": 64, "domain_extent": 1.0,
                 "dt": 0.001, "num_steps": 400,
-                "diffusivity_min": 0.01, "diffusivity_max": 0.01,
-                "convection_scale": 1.0, "ic_num_terms": 3, "ic_max_mode": 4,
+                "diffusivity": 0.01,
+                "convection_scale": 1.0,
             },
         },
         model={"kwargs": {"hidden_channels": 64}},
@@ -108,13 +108,13 @@ TASKS: Dict[str, Dict[str, Any]] = {
         },
     ),
     "poisson_forward": _task(
-        description="2D Poisson, eight-mode sources: source f to solution u",
+        description="2D Exponax Poisson: source f to solution u",
         pde="Poisson", problem="forward", report="E10",
         data={
             "generator": "PoissonGenerator",
             "config": {
                 "num_spatial_dims": 2, "num_points": 64, "domain_extent": 10.0,
-                "order": 2, "source_num_terms": 8, "source_max_mode": 8,
+                "order": 2,
             },
         },
         training={"epochs": 150},

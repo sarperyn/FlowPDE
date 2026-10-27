@@ -191,10 +191,11 @@ when reporting accuracy against solver-step count.
 ## A Note on Uncertainty
 
 For the Poisson and fixed-viscosity Burgers **forward** maps, \(p(u \mid f)\) is a Dirac — the solution
-is deterministic. Sampler spread there is model error, not physical uncertainty. Put
-the UQ story on inverse problems, where the posterior is genuinely non-degenerate.
+is deterministic. Sampler spread there is model error, not physical uncertainty. Use
+uncertainty metrics for inverse setups with a non-degenerate posterior, such as
+Darcy with noisy, partial observations.
 
-Burgers datasets with varying diffusivity currently omit diffusivity from the
-condition. Their learned distribution is marginalized over viscosity; its spread
-can therefore include physical parameter uncertainty. Raw diffusivities remain
-available in the generated data.
+Burgers uses a single fixed `diffusivity` per dataset. Poisson and Burgers
+inverse datasets reverse the clean field pair; they do not inject measurement
+noise or partial observations. Darcy supports its separate noisy, sparse
+observation setup.

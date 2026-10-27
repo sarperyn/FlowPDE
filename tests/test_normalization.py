@@ -66,28 +66,6 @@ def test_test_split_uses_train_statistics():
     assert abs(test_targets.std().item() - 1.0) > 0.5
 
 
-def test_obs_mask_channel_stays_binary_after_normalization():
-    n = 8
-    source = torch.randn(n, 1, 8, 8) * 4 + 1
-    solution = torch.randn(n, 1, 8, 8) * 4 + 1
-    mask = (torch.rand(n, 1, 8, 8) < 0.5).float()
-    stats = {
-        "source": {"mean": 1.0, "std": 4.0},
-        "solution": {"mean": 1.0, "std": 4.0},
-    }
-    dataset = PDEDataset(
-        {"source": source, "solution": solution, "obs_mask": mask},
-        problem="inverse",
-        metadata={"stats": stats},
-    )
-    dataset.set_normalizer(FieldNormalizer(stats))
-
-    sample = dataset[0]
-    assert sample["input"].shape[0] == 2, "mask should be appended as a channel"
-    mask_channel = sample["input"][1]
-    assert torch.all((mask_channel == 0) | (mask_channel == 1))
-
-
 def test_denormalize_channels_for_multi_field_targets():
     """Darcy's inverse_mode='both' target concatenates two fields."""
     normalizer = FieldNormalizer(

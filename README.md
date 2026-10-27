@@ -32,7 +32,7 @@ fields. It combines flow matching with neural ODEs to solve forward problems and
 
 - Poisson, Burgers, and Darcy dataset generation through
   [Exponax](https://fkoehler.site/exponax/)
-- Forward and inverse datasets, including noisy and partial observations
+- Forward and inverse datasets, with noisy and partial observations for Darcy
 - Flow matching and maximum-likelihood objectives over the same `NeuralODEFlow`
 - MLP, ConvNet, ResNet, and UNet backbone neural network models
 - ODE sampling, EMA training, evaluation in physical units, and reflow
@@ -173,17 +173,20 @@ $t=1$. What is learned is the velocity field $v_\theta(x, t \mid c)$ connecting 
 and sampling is one ODE solve. The footer of each figure is the generator call that
 produced the fields shown.
 
-### Poisson — $\nabla^2 u = f$
+### Poisson — $-\nabla^2 u = f$
 
-![Poisson forward: source to solution](https://raw.githubusercontent.com/sarperyn/FlowPDE/main/docs/assets/readme/tasks/poisson-forward.png)
-
-![Poisson inverse: noisy solution to source](https://raw.githubusercontent.com/sarperyn/FlowPDE/main/docs/assets/readme/tasks/poisson-inverse.png)
+`PoissonGenerator` samples mean-zero sources with Exponax's
+`RandomTruncatedFourierSeries` and solves them with `ex.poisson.Poisson`.
+`source_cutoff` and `source_max_one` map directly to the native field options.
+`problem="inverse"` returns solution → source pairs.
 
 ### Burgers — $\partial_t u + u \partial_x u = \nu \partial_x^2 u$
 
-![Burgers forward: initial state to final state](https://raw.githubusercontent.com/sarperyn/FlowPDE/main/docs/assets/readme/tasks/burgers-forward.png)
-
-![Burgers inverse: noisy final state to initial state](https://raw.githubusercontent.com/sarperyn/FlowPDE/main/docs/assets/readme/tasks/burgers-inverse.png)
+`BurgersGenerator` uses Exponax's Fourier fields, `stepper.Burgers`, and
+`RepeatedStepper` (or `rollout` when `store_trajectory=True`). Set one fixed
+`diffusivity`, with native field options `ic_cutoff` and `ic_max_one`.
+`problem="inverse"` returns final → initial pairs. Both wrappers return clean
+field pairs.
 
 ### Darcy — $-\nabla \cdot (\kappa \nabla u) = f$
 

@@ -12,7 +12,7 @@ the right starting point for understanding what the flow is being asked to learn
 
 -   :material-notebook: **[Poisson Dataset — EDA](https://github.com/sarperyn/FlowPDE/blob/main/notebooks/poisson_dataset.ipynb)**
 
-    Source → solution pairs for $\nabla^2 u = f$: generation, statistics, and sample
+    Source → solution pairs for $-\nabla^2 u = f$: generation, statistics, and sample
     visualization.
 
 -   :material-notebook: **[Poisson](https://github.com/sarperyn/FlowPDE/blob/main/notebooks/poisson.ipynb)**
@@ -45,11 +45,8 @@ the right starting point for understanding what the flow is being asked to learn
 
 </div>
 
-!!! note "On the Poisson source distribution"
-    The Poisson dataset currently ships an "easy" variant — 3 sine terms at wavenumbers
-    1–3 (`source_num_terms`, `source_max_mode`). That is a low-dimensional subspace and
-    produces optimistic errors. Restore a harder source distribution before reporting
-    operator-learning results.
+Poisson and Burgers notebooks use native Exponax Fourier fields and solvers.
+Their inverse examples reverse the clean field pairs.
 
 ## Running Locally
 
