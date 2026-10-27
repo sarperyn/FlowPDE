@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional
 
@@ -27,19 +26,6 @@ class FourierFieldConfig:
     amplitude_min: float = 1.0
     amplitude_max: float = 1.0
     normalize: bool = False
-
-
-def log_uniform(key, n: int, min_value: float, max_value: float):
-    """Draw `n` positive scalars from a log-uniform distribution."""
-    if not (math.isfinite(min_value) and math.isfinite(max_value) and 0 < min_value <= max_value):
-        raise ValueError("Log-uniform bounds must satisfy 0 < min <= max and be finite")
-    values = jax.random.uniform(
-        key,
-        shape=(n,),
-        minval=jnp.log(min_value),
-        maxval=jnp.log(max_value),
-    )
-    return jnp.exp(values)
 
 
 def normalize_per_sample(fields):
@@ -118,61 +104,6 @@ class ExponaxDatasetGenerator:
             key: jax_to_torch(value, device=self.config.torch_device)
             for key, value in arrays.items()
             if value is not None
-        }
-
-    def apply_observation_augmentation(
-        self,
-        data: Dict[str, torch.Tensor],
-        *,
-        observation_key: str,
-        problem: Literal["forward", "inverse"],
-        n: int,
-        seed: int,
-    ) -> Dict[str, Any]:
-        """
-        Add observation noise and/or spatial masking, in place.
-
-        Returns:
-            A dict to forward to `wrap_dataset`. It carries `'clean_stats'`
-            (pass as `extra_stats`) and `'observation_key'` (pass inside
-            `extra_metadata`), both empty when no augmentation applied.
-        """
-        cfg = self.config
-        if problem != "inverse":
-            return {}
-        if cfg.obs_noise_std <= 0.0 and cfg.obs_mask_fraction >= 1.0:
-            return {}
-
-        # Statistics must describe the *clean* field. Fitting them on the
-        # masked observation deflates the std by roughly
-        # sqrt(obs_mask_fraction) and shifts the mean, so the same normalizer
-        # would put clean data on a different scale.
-        clean_stats = {observation_key: compute_normalization_stats(data[observation_key])}
-
-        if cfg.obs_noise_std > 0.0:
-            noise_gen = torch.Generator().manual_seed(seed + 1)
-            noise = torch.randn(
-                data[observation_key].shape,
-                generator=noise_gen,
-                dtype=data[observation_key].dtype,
-            ).to(device=data[observation_key].device)
-            data[observation_key] = (
-                data[observation_key] + cfg.obs_noise_std * noise
-            )
-
-        if cfg.obs_mask_fraction < 1.0:
-            spatial_shape = (cfg.num_points,) * cfg.num_spatial_dims
-            mask_gen = torch.Generator().manual_seed(seed)
-            obs_mask = (
-                torch.rand((n, 1) + spatial_shape, generator=mask_gen)
-                < cfg.obs_mask_fraction
-            ).float().to(device=cfg.torch_device)
-            data[observation_key] = data[observation_key] * obs_mask
-            data["obs_mask"] = obs_mask
-
-        return {
-            "clean_stats": clean_stats,
-            "observation_key": observation_key,
         }
 
     def wrap_dataset(

@@ -63,7 +63,6 @@ _EXPONAX_NAMES = frozenset({
     'ExponaxDatasetGenerator',
     'FourierFieldConfig',
     'sample_fourier_fields',
-    'log_uniform',
     'PoissonGenerator',
     'PoissonConfig',
     'BurgersGenerator',
@@ -72,7 +71,6 @@ _EXPONAX_NAMES = frozenset({
     'DarcyConfig',
     'DarcyDataset',
     'jax_to_torch',
-    'sample_sine_fields',
 })
 
 
@@ -109,7 +107,5 @@ __all__ = [
 
     # Utilities
     'sample_fourier_fields',
-    'log_uniform',
     'jax_to_torch',
-    'sample_sine_fields',
 ]

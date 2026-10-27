@@ -22,14 +22,10 @@ train_ds = generator.generate(num_samples=1000, seed=42, problem="forward")
 val_ds   = generator.generate(num_samples=200,  seed=43, problem="forward")
 ```
 
-Every dataset emits `{'input': condition, 'target': solution}`. For **inverse
-problems** (solution → source), pass `problem="inverse"`, which also enables
-`obs_noise_std` and `obs_mask_fraction`.
-
-!!! note "Masking adds a channel"
-    When masking is on, the binary observation mask is appended as an extra condition
-    channel. Build the model with `condition_channels` matching
-    `sample['input'].shape[0]`.
+Every dataset emits `{'input': condition, 'target': solution}`. For Poisson and
+Burgers, `problem="inverse"` swaps the clean field pair. Both use Exponax's
+`RandomTruncatedFourierSeries` and native solvers. Burgers uses one fixed
+`diffusivity` per dataset. Darcy supports observation noise and masking.
 
 Burgers and Darcy work the same way:
 
@@ -39,7 +35,7 @@ from flowpde.datasets import BurgersGenerator, DarcyGenerator
 burgers = BurgersGenerator(
     num_spatial_dims=1, num_points=160,
     dt=0.001, num_steps=50,
-    diffusivity_min=0.0003, diffusivity_max=0.0003,   # a range, not a scalar
+    diffusivity=0.0003,
 )
 burgers_ds = burgers.generate(num_samples=500, seed=0)   # 'initial' -> 'final'
 

@@ -5,9 +5,17 @@ Dataset generation using [Exponax](https://fkoehler.site/exponax/) spectral PDE 
 Exponax provides pseudo-spectral solvers for a range of PDEs on periodic domains.
 FlowPDE wraps these to generate training data for flow-based models.
 
-All generators subclass `ExponaxDatasetGenerator`, which provides shared observation
-augmentation, JAX→torch conversion, statistics, and dataset wrapping. Every dataset
+All generators subclass `ExponaxDatasetGenerator`, which provides JAX→torch conversion, statistics, and dataset wrapping. Every dataset
 emits `{'input': condition, 'target': solution}`.
+
+Burgers and Poisson use native `ex.ic.RandomTruncatedFourierSeries` fields.
+`ic_cutoff` / `source_cutoff` and `ic_max_one` / `source_max_one` map directly
+to its `cutoff` and `max_one` arguments. Vector Burgers uses Exponax's
+`RandomMultiChannelICGenerator`. Burgers exposes native stepper options,
+including a fixed `diffusivity`; trajectories use `ex.rollout`.
+
+`problem="inverse"` reverses the clean pair. Darcy uses its own solver and
+observation options.
 
 ## Base Generator
 
@@ -15,7 +23,7 @@ emits `{'input': condition, 'target': solution}`.
 
 ## Poisson Generator
 
-Source → solution pairs for the Poisson equation $\nabla^2 u = f$ (1D/2D/3D).
+Source → solution pairs for the Poisson equation $-\nabla^2 u = f$ (1D/2D/3D).
 
 ::: flowpde.datasets.exponax.poisson.PoissonGenerator
 

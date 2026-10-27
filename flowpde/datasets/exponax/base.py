@@ -28,16 +28,6 @@ class GenerationConfig:
         num_samples: Number of samples to generate
         seed: Random seed for reproducibility
         torch_device: Target PyTorch device for converted tensors
-        obs_noise_std: Optional additive Gaussian noise applied to the
-            inverse-problem observation field.  Set to 0.0 to disable.
-        obs_mask_fraction: Fraction of spatial grid points that are *observed*
-            in inverse-problem datasets.  Each sample independently draws a
-            random Bernoulli mask with this probability; unobserved locations
-            are zeroed out in the observation field.  The binary mask
-            (1 = observed, 0 = unobserved) is stored as `'obs_mask'` in the
-            dataset and returned by `__getitem__`.  1.0 (default) = full
-            observations; 0.1 = only 10 % of points visible.
-            Has no effect when `problem='forward'` or when left at 1.0.
     """
     num_spatial_dims: int = 2
     num_points: int = 64
@@ -45,18 +35,12 @@ class GenerationConfig:
     num_samples: int = 10000
     seed: int = 42
     torch_device: str = 'cpu'
-    obs_noise_std: float = 0.0
-    obs_mask_fraction: float = 1.0
 
     def __post_init__(self):
         if self.num_spatial_dims < 1 or self.num_points < 2 or self.num_samples < 1:
             raise ValueError("Spatial dimensions, grid size, and sample count must be positive")
         if not math.isfinite(self.domain_extent) or self.domain_extent <= 0:
             raise ValueError("domain_extent must be finite and positive")
-        if not 0 <= self.obs_mask_fraction <= 1:
-            raise ValueError("obs_mask_fraction must lie in [0, 1]")
-        if not math.isfinite(self.obs_noise_std) or self.obs_noise_std < 0:
-            raise ValueError("obs_noise_std must be finite and nonnegative")
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -74,11 +58,6 @@ class PDEDataset(Dataset):
       or input=solution, target=source (inverse).
     * **Burgers** (time-dependent): input=initial condition,
       target=final state (forward) or vice-versa (inverse).
-
-    When partial observations are enabled (`obs_mask_fraction < 1.0`),
-    `__getitem__` appends the observation mask to the conditioning input
-    and additionally returns `'obs_mask'`: a float tensor of shape
-    `(1, *spatial)` with 1 at observed locations and 0 elsewhere.
 
     The dataset also stores normalization statistics and generation
     config for reference.
@@ -111,8 +90,6 @@ class PDEDataset(Dataset):
         self.metadata = metadata or {}
         self.stats = self.metadata.get('stats', {})
         self.config = self.metadata.get('config', {})
-        # Which raw field carries the (possibly masked) observation, if any.
-        self.observation_key = self.metadata.get('observation_key')
         self.normalizer = normalizer
 
         self._setup_keys()
@@ -163,28 +140,12 @@ class PDEDataset(Dataset):
         value = self.data[name][idx]
         if self.normalizer is not None:
             value = self.normalizer.normalize(name, value)
-            # Re-apply the mask after standardizing: normalization subtracts
-            # the field mean, which would turn the "not observed" zeros into a
-            # nonzero constant and contradict the obs_mask channel.
-            if name == self.observation_key:
-                obs_mask = self.data.get('obs_mask')
-                if obs_mask is not None:
-                    value = value * obs_mask[idx]
         return value
 
     @property
     def input_fields(self) -> List[str]:
-        """Raw field names composing `sample['input']`, in channel order.
-
-        The mask is appended to the input as an extra channel, so it has to
-        appear here too or the names no longer line up with the channels --
-        which is exactly what `denormalize_channels` splits on.  It has no
-        statistics, so it passes through denormalization unchanged.
-        """
-        fields = [self.input_key]
-        if self.data.get('obs_mask') is not None:
-            fields.append('obs_mask')
-        return fields
+        """Raw field names composing `sample['input']`, in channel order."""
+        return [self.input_key]
 
     @property
     def target_fields(self) -> List[str]:
@@ -196,19 +157,10 @@ class PDEDataset(Dataset):
         return len(self.data[self.input_key])
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        inp = self._field(self.input_key, idx)
-        obs_mask = self.data.get('obs_mask')
-        if obs_mask is not None:
-            # The mask stays binary: it is an indicator channel, not a field.
-            inp = torch.cat([inp, obs_mask[idx]], dim=0)
-
-        sample = {
-            'input': inp,
+        return {
+            'input': self._field(self.input_key, idx),
             'target': self._field(self.target_key, idx),
         }
-        if obs_mask is not None:
-            sample['obs_mask'] = obs_mask[idx]
-        return sample
 
     # Getters for metadata
     def get_stats(self) -> Dict[str, Dict[str, float]]:

@@ -62,18 +62,17 @@ def test_forward_and_inverse_share_one_normalizer():
     assert torch.allclose(forward[0]["input"], inverse[0]["target"], atol=1e-6)
 
 
-def test_inverse_problem_with_masking_appends_mask_channel():
-    generator = PoissonGenerator(
-        num_spatial_dims=1, num_points=16, obs_mask_fraction=0.5, obs_noise_std=0.1
-    )
-    dataset = generator.generate(num_samples=8, seed=0, problem="inverse")
-    dataset.set_normalizer(FieldNormalizer.from_dataset(dataset))
-
-    sample = dataset[0]
-    assert sample["input"].shape[0] == 2, "observation + mask channel"
-    mask = sample["input"][1]
-    assert torch.all((mask == 0) | (mask == 1)), "mask must not be normalized"
-    assert 0 < mask.mean().item() < 1
+@pytest.mark.parametrize("generator_cls", [PoissonGenerator, BurgersGenerator])
+def test_native_inverse_only_swaps_clean_fields(generator_cls):
+    generator = generator_cls(num_spatial_dims=1, num_points=16)
+    forward = generator.generate(num_samples=2, seed=0)
+    inverse = generator.generate(num_samples=2, seed=0, problem="inverse")
+    assert torch.equal(forward[0]["input"], inverse[0]["target"])
+    assert torch.equal(forward[0]["target"], inverse[0]["input"])
+    assert "obs_mask" not in inverse.data
+    assert "diffusivity" not in inverse.data
+    with pytest.raises(TypeError):
+        generator_cls(obs_noise_std=0.1)
 
 
 def test_darcy_target_fields_match_problem_mode():
@@ -324,3 +323,53 @@ def test_darcy_residual_describes_the_stored_solution():
     residual = ((au - b).flatten(1).norm(dim=1) / b.flatten(1).norm(dim=1)).max().item()
     assert residual < dataset.get_config()["cg_tolerance"]
     assert residual == pytest.approx(dataset.metadata["cg_residual_max"], abs=1e-12)
+
+
+@pytest.mark.parametrize("dimension", [1, 2, 3])
+def test_poisson_matches_native_exponax(dimension):
+    import exponax as ex
+    import jax
+    import numpy as np
+
+    cfg = dict(num_spatial_dims=dimension, num_points=8, domain_extent=2.0)
+    dataset = PoissonGenerator(**cfg).generate(num_samples=2, seed=7)
+    sources = ex.build_ic_set(ex.ic.RandomTruncatedFourierSeries(dimension),
+                              num_points=8, num_samples=2, key=jax.random.PRNGKey(7))
+    expected = jax.vmap(ex.poisson.Poisson(**cfg))(sources)
+    np.testing.assert_allclose(dataset.data["source"].numpy(), np.asarray(sources))
+    np.testing.assert_allclose(dataset.data["solution"].numpy(), np.asarray(expected))
+    assert dataset.data["source"].mean().abs() < 1e-6
+
+
+@pytest.mark.parametrize("dimension,single_channel", [(1, True), (2, False), (2, True)])
+def test_burgers_matches_native_exponax_and_rollout(dimension, single_channel):
+    import exponax as ex
+    import jax
+    import numpy as np
+
+    cfg = dict(num_spatial_dims=dimension, num_points=8, domain_extent=1.0,
+               dt=0.001, diffusivity=0.01, single_channel=single_channel)
+    field = ex.ic.RandomTruncatedFourierSeries(dimension)
+    if not single_channel:
+        field = ex.ic.RandomMultiChannelICGenerator((field,) * dimension)
+    initials = ex.build_ic_set(field, num_points=8, num_samples=2,
+                               key=jax.random.PRNGKey(7))
+    stepper = ex.stepper.Burgers(**cfg)
+    expected = jax.vmap(ex.rollout(stepper, 3, include_init=True))(initials)
+    trajectory = BurgersGenerator(**cfg, num_steps=3, store_trajectory=True).generate(
+        num_samples=2, seed=7)
+    final = BurgersGenerator(**cfg, num_steps=3).generate(num_samples=2, seed=7)
+    np.testing.assert_allclose(trajectory.data["trajectory"].numpy(), np.asarray(expected))
+    torch.testing.assert_close(final.data["initial"], trajectory.data["trajectory"][:, 0])
+    torch.testing.assert_close(final.data["final"], trajectory.data["trajectory"][:, -1])
+
+
+def test_poisson_native_sign_convention():
+    """The native solver solves -Laplacian(u) = f, not Laplacian(u) = f."""
+    import math
+
+    dataset = PoissonGenerator(num_spatial_dims=1, num_points=16,
+                               domain_extent=2 * math.pi, source_cutoff=1).generate(
+        num_samples=2, seed=7)
+    torch.testing.assert_close(dataset.data["solution"], dataset.data["source"],
+                               atol=1e-6, rtol=1e-5)

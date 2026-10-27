@@ -23,7 +23,7 @@ it is never edited by hand.
 | Task | PDE / direction | Conditioning input | Target |
 |---|---|---|---|
 | `burgers_forward` | 1D viscous Burgers, $\nu = 0.01$ | initial state $u(x, 0)$ | final state $u(x, T)$ |
-| `poisson_forward` | 2D Poisson, eight-mode sources | source $f$ | solution $u$ |
+| `poisson_forward` | 2D Exponax Poisson, native Fourier sources | source $f$ | solution $u$ |
 | `darcy_forward` | 2D Darcy, log-normal $\kappa$ | $(\kappa, f)$ | pressure $u$ |
 | `darcy_inverse` | 2D Darcy | 15 % observed, noisy $u$; known $f$; mask | coefficient $\kappa$ |
 

@@ -24,7 +24,7 @@ python -m benchmarks.run --list
 | Task | PDE / direction | Report |
 |---|---|---|
 | `burgers_forward` | 1D Burgers, $u(x,0) \to u(x,T)$ | E2 |
-| `poisson_forward` | 2D Poisson, eight-mode source $f \to u$ | E10 |
+| `poisson_forward` | 2D Poisson, native Fourier source $f \to u$ | E10 |
 | `darcy_forward` | 2D Darcy, $(\kappa, f) \to u$ | E3 |
 | `darcy_inverse` | 2D Darcy, 15 % observed noisy $u$ and $f \to \kappa$ | E6 |
 
@@ -32,7 +32,7 @@ python -m benchmarks.run --list
 
 | Scale | Data | Training | Use |
 |---|---|---|---|
-| `full` | report settings: 64 / 64², 3000 / 200 / 200 | 150–500 epochs | GPU; the published numbers |
+| `full` | 64 / 64², 3000 / 200 / 200 | 150–500 epochs | GPU training |
 | `quick` | 2D at 32², 1000 / 64 / 200 | 60–100 epochs | laptop CPU or Apple MPS; indicative only |
 | `smoke` | 16 / 16², 16 / 8 / 8 | 1 epoch | CI; checks the pipeline, numbers are meaningless |
 

@@ -47,14 +47,12 @@ from .darcy import DarcyConfig, DarcyDataset, DarcyGenerator
 from .generator import (
     ExponaxDatasetGenerator,
     FourierFieldConfig,
-    log_uniform,
     sample_fourier_fields,
 )
 from .poisson import PoissonConfig, PoissonGenerator
 from .utilities import (
     compute_normalization_stats,
     jax_to_torch,
-    sample_sine_fields,
 )
 
 __all__ = [
@@ -63,7 +61,6 @@ __all__ = [
     'ExponaxDatasetGenerator',
     'FourierFieldConfig',
     'sample_fourier_fields',
-    'log_uniform',
     'PoissonGenerator',
     'PoissonConfig',
     'BurgersGenerator',
@@ -73,5 +70,4 @@ __all__ = [
     'DarcyDataset',
     'jax_to_torch',
     'compute_normalization_stats',
-    'sample_sine_fields',
 ]
