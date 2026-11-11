@@ -19,8 +19,11 @@ __pycache__/
 /report/
 /experiments/
 /configs/
-/configs/
 /presentation
+/tests
+/logs
+/runs
+/flowpde.egg-info
 
 # Benchmark outputs (weights are published as release assets)
 /benchmarks/runs/
